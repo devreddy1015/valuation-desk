@@ -25,13 +25,19 @@ const MARKETS: { country: string; suffix: string; example: [string, string] }[] 
   { country: "India, BSE", suffix: ".BO", example: ["500325.BO", "Reliance on BSE"] },
 ];
 
+const TOOLS: { href: string; label: string; title: string; body: string; cta: string }[] = [
+  { href: "/scan", label: "Find", title: "Opportunity scanner", body: "Value a whole index in about a minute: Nifty 50, Next 50, midcaps, sector indices or the Dow. Rank by value gap, expected return, health, or how little growth the price assumes.", cta: "Scan the Nifty 50" },
+  { href: "/portfolio", label: "Check", title: "Portfolio X-ray", body: "Paste or upload your holdings (a Zerodha holdings CSV works as is) and see what the whole portfolio is priced for, how healthy it is, and where it is concentrated.", cta: "X-ray my portfolio" },
+  { href: "/india", label: "Value", title: "Valuation desk", body: "Open any stock for the full model: your own forecast, peers, scenarios, a health check, a plain-English summary, and an Excel model with live formulas.", cta: "Browse every NSE stock" },
+];
+
 const FEATURES = [
-  ["DCF", "Five-year free cash flow forecast with bear, base and bull cases, a WACC you build step by step, and the bridge from enterprise value to a share price."],
-  ["Comps", "Peers from the same industry, found automatically and editable, with median EV/EBITDA and P/E turned into a value per share."],
-  ["Reverse DCF", "The revenue growth and margin that today's price already assumes, set against your own forecast."],
-  ["Monte Carlo", "Two thousand simulated futures and the chance the stock is worth more than its price."],
-  ["Sensitivity", "A WACC against terminal growth grid that shows how much your answer depends on two inputs nobody knows."],
-  ["Client report", "A one-page summary to copy, print or save as PDF, plus a CSV of every input and output."],
+  ["Plain English", "Every result explained in sentences a client understands: what growth the price assumes, what you would earn if your forecast comes true, and how much of the price pays for growth."],
+  ["Business health", "Piotroski F-score, Altman Z'' and the Beneish M-score earnings-manipulation screen, plus cash conversion, ROCE, debt cover and dilution, each with the number behind it."],
+  ["DCF and scenarios", "Five-year free cash flow forecast with bear, base and bull cases, a WACC you build step by step, a reverse DCF and the bridge from enterprise value to a share price."],
+  ["Peers and history", "Peers found automatically and editable, plus the stock's own P/E and P/B band over the years: is it cheap against its past, not just its rivals?"],
+  ["Uncertainty", "Two thousand simulated futures, a WACC by growth sensitivity grid and a football field of every range, so nobody mistakes one number for the truth."],
+  ["Share and export", "A link that opens your exact valuation, a preview card for WhatsApp and LinkedIn, a printable report, CSV, and a working Excel model."],
 ];
 
 async function NseCount() {
@@ -47,9 +53,13 @@ export default function Home() {
         <div className="wrap">
           <div className="ticker-dots" aria-hidden="true"><i className="on" /><i className="on" /><i className="on" /><i /><i /><i /></div>
           <p className="label">Equity research · any listed company</p>
-          <h1 id="hero-h">Value any listed company.<span className="accent">From Infosys to Toyota, in minutes.</span></h1>
-          <p className="lede">Live prices and five years of statements, turned into a DCF, a peer comparison, scenarios and a client-ready summary. Every input is yours to change; every number shows where it came from.</p>
+          <h1 id="hero-h">Find it, check it, value it.<span className="accent">Any listed company, from Infosys to Toyota.</span></h1>
+          <p className="lede">Find opportunities across an index, check the health of a business, and value it with live prices and five years of statements. Every input is yours to change; every number shows where it came from.</p>
           <div className="hero-search"><SearchBox /></div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+            <Link className="btn primary" href="/scan">Scan the Nifty 50</Link>
+            <Link className="btn" href="/portfolio">X-ray my portfolio</Link>
+          </div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
             {QUICK.map(([s, n]) => <Link key={s} className="chip" href={`/stock/${encodeURIComponent(s)}`}>{n} <span className="muted">{s}</span></Link>)}
           </div>
@@ -57,6 +67,20 @@ export default function Home() {
       </section>
 
       <div className="wrap" style={{ display: "flex", flexDirection: "column", gap: 20, paddingBottom: 48 }}>
+        <section aria-labelledby="tl-h" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          <div className="section-head"><h2 id="tl-h">Three ways in</h2><p>Start from a whole market, from what you already own, or from one company.</p></div>
+          <div className="grid-3">
+            {TOOLS.map((t) => (
+              <Link key={t.href} href={t.href} className="card tile tool">
+                <span className="label">{t.label}</span>
+                <h3>{t.title}</h3>
+                <p>{t.body}</p>
+                <span className="accent small mono">{t.cta} →</span>
+              </Link>
+            ))}
+          </div>
+        </section>
+
         <Watchlist />
 
         <section aria-labelledby="mk-h" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -78,7 +102,7 @@ export default function Home() {
         </section>
 
         <section aria-labelledby="ft-h" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          <div className="section-head"><h2 id="ft-h">What the desk does for each stock</h2></div>
+          <div className="section-head"><h2 id="ft-h">What you get for each stock</h2></div>
           <div className="grid-3">
             {FEATURES.map(([k, d]) => (
               <div key={k} className="card quote-card">

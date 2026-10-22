@@ -1,7 +1,10 @@
 import type { Metadata, Viewport } from "next";
 import Link from "next/link";
 import { Geist, Geist_Mono } from "next/font/google";
+import { Suspense } from "react";
+import NavLinks from "@/components/NavLinks";
 import SearchBox from "@/components/SearchBox";
+import { NAV } from "@/lib/nav";
 import ThemeToggle, { themeInitScript } from "@/components/ThemeToggle";
 import "./globals.css";
 
@@ -26,9 +29,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           <div className="wrap">
             <Link href="/" className="brand"><span className="dot" aria-hidden="true" />Valuation Desk</Link>
             <nav className="nav" aria-label="Main">
-              <Link href="/">Home</Link>
-              <Link href="/india">All Indian stocks</Link>
-              <Link href="/method">Method</Link>
+              <Suspense fallback={NAV.map(([href, label]) => <Link key={href} href={href}>{label}</Link>)}><NavLinks /></Suspense>
             </nav>
             <span className="spacer" />
             <div className="top-search"><SearchBox compact placeholder="Search a company or ticker" /></div>

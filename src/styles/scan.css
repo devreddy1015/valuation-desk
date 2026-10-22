@@ -1,0 +1,75 @@
+/* Opportunity scanner (/scan). Built on the global tokens and classes only: no hard-coded colours. */
+.scan-page { display: flex; flex-direction: column; gap: 20px; padding-block: 28px 48px; }
+.scan-head { display: flex; flex-direction: column; gap: 10px; }
+.scan-head h1 { font-size: clamp(28px, 4vw, 44px); letter-spacing: -0.03em; font-weight: 600; }
+.scan-head p.lede { color: var(--ink-2); max-width: 72ch; }
+
+/* picker */
+.scan-pick { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px 16px; align-items: end; }
+@media (max-width: 640px) { .scan-pick { grid-template-columns: minmax(0, 1fr); } }
+.scan-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.scan-field > label, .scan-field > .lab { font-size: 13.5px; color: var(--ink-2); }
+.scan-select, .scan-textarea { width: 100%; min-width: 0; border: 1px solid var(--line-2); border-radius: 10px; background: var(--card); color: var(--ink); font: inherit; font-size: 14px; }
+.scan-select { height: 40px; padding: 0 10px; }
+.scan-textarea { min-height: 96px; padding: 10px 12px; resize: vertical; font-family: var(--font-mono); font-size: 13px; line-height: 1.5; }
+.scan-select:focus-visible, .scan-textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.scan-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.scan-actions .btn { height: 40px; }
+.scan-custom { display: flex; flex-direction: column; gap: 10px; }
+.scan-custom .row { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; }
+
+/* progress */
+.scan-progress { display: flex; flex-direction: column; gap: 6px; }
+.scan-bar { height: 6px; border-radius: 999px; background: var(--bg-raise); overflow: hidden; border: 1px solid var(--line); }
+.scan-bar > span { display: block; height: 100%; background: var(--accent); transition: width 0.25s ease; }
+.scan-status { font-size: 13.5px; color: var(--ink-2); min-height: 1.5em; }
+.scan-failed > summary { cursor: pointer; font-size: 13px; color: var(--accent); width: max-content; max-width: 100%; }
+.scan-failed ul { margin: 8px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--ink-2); }
+
+/* views and filters */
+.scan-controls { display: flex; flex-direction: column; gap: 12px; }
+.scan-filters { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: flex-end; }
+.scan-filters .scan-field { flex: 1 1 180px; max-width: 280px; }
+.scan-filters .check { align-self: center; padding-top: 18px; }
+.scan-filters .spacer { flex: 1 1 0; }
+@media (max-width: 640px) {
+  .seg.scan-views { display: grid; grid-auto-flow: row; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; background: var(--line); width: 100%; }
+  .seg.scan-views button { border-left: none; white-space: normal; }
+  .seg.scan-views button:not([aria-pressed="true"]) { background: var(--card); }
+  .scan-filters .scan-field { max-width: none; }
+  .scan-filters .check { padding-top: 0; }
+}
+
+/* table */
+.scan-table td { vertical-align: top; }
+.scan-table .sub { display: block; font-size: 11.5px; color: var(--muted); font-weight: 400; white-space: nowrap; }
+.scan-table td.co { white-space: normal; min-width: 170px; max-width: 250px; }
+.scan-table td.co a { color: var(--ink); font-weight: 600; text-decoration: none; }
+.scan-table td.co a:hover { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+.scan-table td.grp { white-space: normal; min-width: 120px; max-width: 180px; color: var(--ink-2); }
+/* keep the company visible while the rest scrolls sideways */
+.scan-table th:first-child, .scan-table td:first-child { position: sticky; left: 0; z-index: 1; background: var(--card); box-shadow: 1px 0 0 var(--line); }
+.scan-table tbody tr:hover td:first-child { background: linear-gradient(color-mix(in oklab, var(--accent-wash) 50%, transparent), color-mix(in oklab, var(--accent-wash) 50%, transparent)), var(--card); }
+.scan-pos { color: var(--good); font-weight: 600; }
+.scan-neg { color: var(--bad); font-weight: 600; }
+.scan-table .pill { font-size: 11.5px; padding: 2px 9px; }
+.scan-table .badge { min-width: 26px; justify-content: center; }
+.scan-flags > summary { cursor: pointer; color: var(--accent); font-size: 13px; }
+.scan-flags ul { margin: 6px 0 0; padding-left: 16px; text-align: left; white-space: normal; min-width: 220px; max-width: 320px; font-size: 12.5px; color: var(--ink-2); display: flex; flex-direction: column; gap: 3px; }
+.scan-flags li.good { color: var(--good); }
+.scan-flags li.good::marker { content: "+ "; }
+.scan-flags li.bad::marker { content: "! "; color: var(--bad); }
+
+/* explainer */
+details.scan-method > summary { cursor: pointer; list-style: none; display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }
+details.scan-method > summary::-webkit-details-marker { display: none; }
+details.scan-method > summary h2 { font-size: 17px; font-weight: 600; }
+details.scan-method > summary::after { content: "+"; font-family: var(--font-mono); color: var(--muted); }
+details.scan-method[open] > summary::after { content: "–"; }
+.scan-method dl { margin: 4px 0 0; display: grid; grid-template-columns: minmax(0, 200px) minmax(0, 1fr); gap: 10px 18px; font-size: 14px; }
+.scan-method dt { font-weight: 600; }
+.scan-method dd { margin: 0; color: var(--ink-2); max-width: 75ch; }
+@media (max-width: 640px) { .scan-method dl { grid-template-columns: minmax(0, 1fr); gap: 2px; } .scan-method dd { margin-bottom: 10px; } }
+
+@media (prefers-reduced-motion: reduce) { .scan-bar > span { transition: none; } }
+@media print { .scan-pick, .scan-controls, .scan-failed, .scan-actions { display: none !important; } .scan-table th:first-child, .scan-table td:first-child { position: static; box-shadow: none; } }

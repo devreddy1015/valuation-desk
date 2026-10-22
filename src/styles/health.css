@@ -1,0 +1,29 @@
+/* Business health panel. Prefixed hl- because global CSS stays loaded across routes. */
+.hl-top { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 16px; align-items: stretch; }
+@media (max-width: 620px) { .hl-top { grid-template-columns: minmax(0, 1fr); } }
+.hl-grade { border: 1px solid var(--line-2); border-radius: 12px; padding: 14px 16px; display: flex; flex-direction: column; gap: 2px; justify-content: center; background: var(--bg-raise); }
+.hl-grade .v { font-size: 52px; line-height: 1; font-weight: 700; letter-spacing: -0.03em; font-family: var(--font-mono); }
+.hl-grade .n { font-size: 13px; color: var(--ink-2); }
+.hl-grade.g-A, .hl-grade.g-B { background: var(--good-wash); border-color: var(--good); }
+.hl-grade.g-A .v, .hl-grade.g-B .v { color: var(--good); }
+.hl-grade.g-D, .hl-grade.g-E { background: var(--bad-wash); border-color: var(--bad); }
+.hl-grade.g-D .v, .hl-grade.g-E .v { color: var(--bad); }
+.hl-lead { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.hl-summary { font-size: 15.5px; line-height: 1.5; max-width: 80ch; }
+.hl-lead .minis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (max-width: 760px) { .hl-lead .minis { grid-template-columns: minmax(0, 1fr); } }
+.hl-list { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.hl-list h3 { font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 8px; color: var(--ink-2); }
+.hl-list ul { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; font-size: 14px; }
+.hl-metrics { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+.hl-metrics .mini .k { justify-content: space-between; flex-wrap: wrap; }
+.hl-metrics .mini .n { line-height: 1.4; }
+.hl-tests { margin-top: 8px; }
+.hl-tests li > div { font-size: 14px; }
+.hl-cap { caption-side: top; text-align: left; font-weight: 600; font-size: 13.5px; padding-bottom: 6px; }
+.hl-read { display: flex; flex-direction: column; gap: 8px; font-size: 13.5px; color: var(--ink-2); max-width: 85ch; margin-top: 8px; }
+.hl-notes { margin: 0; padding-left: 18px; font-size: 12.5px; color: var(--muted); display: flex; flex-direction: column; gap: 3px; }
+.hl-chip { display: inline-flex; align-items: baseline; gap: 2px; min-width: 24px; justify-content: center; font-family: var(--font-mono); font-weight: 700; font-size: 13px; border-radius: 6px; padding: 1px 6px; background: var(--bg-raise); color: var(--ink-2); }
+.hl-chip small { font-weight: 500; font-size: 11px; opacity: 0.8; }
+.hl-chip.g-A, .hl-chip.g-B { background: var(--good-wash); color: var(--good); }
+.hl-chip.g-D, .hl-chip.g-E { background: var(--bad-wash); color: var(--bad); }

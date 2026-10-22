@@ -95,9 +95,11 @@ a { color: inherit; }
 .topbar .spacer { flex: 1; }
 .top-search { width: min(420px, 40vw); }
 @media (max-width: 760px) {
-  .nav { display: none; }
+  .topbar { position: static; }
   .topbar .wrap { flex-wrap: wrap; height: auto; padding-block: 8px; row-gap: 8px; }
   .top-search { order: 3; width: 100%; }
+  .nav { order: 4; width: 100%; margin: 0 -4px; overflow-x: auto; scrollbar-width: none; }
+  .nav::-webkit-scrollbar { display: none; }
 }
 
 .btn { display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--line-2); background: var(--card); color: var(--ink); border-radius: 10px; padding: 7px 12px; font: inherit; font-size: 14px; font-weight: 500; cursor: pointer; text-decoration: none; white-space: nowrap; }
@@ -312,3 +314,7 @@ table.data tbody tr:hover td { background: color-mix(in oklab, var(--accent-wash
   .print-only { display: block !important; }
 }
 .print-only { display: none; }
+
+/* home: tool tiles */
+.tile.tool { min-height: 200px; }
+.tile.tool .accent { margin-top: auto; }
