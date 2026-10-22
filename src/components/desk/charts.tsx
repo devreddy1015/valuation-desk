@@ -6,7 +6,7 @@ type TipRow = [string, string, string?];
 interface TipState { x: number; y: number; w: number; title: string; rows: TipRow[] }
 
 /** One tooltip per chart: marks call bind() to show it on hover and on keyboard focus. */
-function useTip() {
+export function useTip() {
   const ref = useRef<HTMLDivElement>(null);
   const [tip, setTip] = useState<TipState | null>(null);
   const place = (cx: number, cy: number, title: string, rows: TipRow[]) => {
@@ -34,7 +34,7 @@ function useTip() {
   return { ref, bind, node, setTip, place };
 }
 
-function niceTicks(lo: number, hi: number, count: number): number[] {
+export function niceTicks(lo: number, hi: number, count: number): number[] {
   if (!(hi > lo)) return [lo];
   const span = hi - lo, raw = span / count, mag = Math.pow(10, Math.floor(Math.log10(raw)));
   const step = [1, 2, 2.5, 5, 10].map((m) => m * mag).find((s) => span / s <= count) ?? 10 * mag;

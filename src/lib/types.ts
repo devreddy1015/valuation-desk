@@ -13,6 +13,28 @@ export interface FiscalYear {
   capex: number; // positive = cash spent
   wcInc: number; // positive = cash used by working capital
   netIncome: number;
+  // Optional lines for the health check and valuation history: null when Yahoo lacks them.
+  // Every amount in a year uses that year's conversion rate, so ratios within a year are exact.
+  cfo?: number | null; // cash from operations
+  totalAssets?: number | null;
+  currentAssets?: number | null;
+  currentLiabilities?: number | null;
+  totalLiabilities?: number | null; // excluding minority interest
+  equity?: number | null; // shareholders' equity
+  retainedEarnings?: number | null;
+  longTermDebt?: number | null;
+  totalDebt?: number | null;
+  cash?: number | null; // cash and short-term investments
+  receivables?: number | null;
+  grossProfit?: number | null;
+  sga?: number | null; // selling, general and administrative
+  netPPE?: number | null;
+  interestExpense?: number | null; // positive = cost
+  dilutedShares?: number | null; // weighted average diluted shares, as reported (not split-adjusted)
+  dilutedEPS?: number | null; // as reported, converted to the model currency
+  dividendsPaid?: number | null; // positive = cash paid
+  buybacks?: number | null; // positive = cash paid
+  sbc?: number | null; // stock-based compensation
 }
 
 export interface Bridge {

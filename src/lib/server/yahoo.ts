@@ -38,7 +38,8 @@ async function fxMonthly(from: string, to: string, start: Date): Promise<Map<str
     return m;
   });
 }
-async function fxSpot(from: string, to: string): Promise<number> {
+/** Live exchange rate: units of `to` per unit of `from`. */
+export async function fxSpot(from: string, to: string): Promise<number> {
   return cached(`fxspot:${from}${to}`, 30 * MIN, async () => {
     const q: any = await yf.quote(`${from}${to}=X`);
     const v = num(q?.regularMarketPrice);
@@ -93,6 +94,8 @@ async function dividendsSince(symbol: string, since: string): Promise<{ perShare
 }
 
 const pick = (row: any, ...keys: string[]) => { for (const k of keys) { const v = num(row?.[k]); if (v !== null) return v; } return null; };
+const opt = (v: number | null, k: number) => (v === null ? null : v * k);
+const abs = (v: number | null) => (v === null ? null : Math.abs(v));
 
 export function getStockData(rawSymbol: string): Promise<StockData> {
   const symbol = rawSymbol.trim().toUpperCase();
@@ -144,6 +147,26 @@ export function getStockData(rawSymbol: string): Promise<StockData> {
         capex: Math.abs(pick(r, "capitalExpenditure", "capitalExpenditureReported") ?? 0) * k,
         wcInc: -(pick(r, "changeInWorkingCapital") ?? 0) * k,
         netIncome: (pick(r, "netIncomeCommonStockholders", "netIncome") ?? 0) * k,
+        cfo: opt(pick(r, "operatingCashFlow", "cashFlowFromContinuingOperatingActivities"), k),
+        totalAssets: opt(pick(r, "totalAssets"), k),
+        currentAssets: opt(pick(r, "currentAssets"), k),
+        currentLiabilities: opt(pick(r, "currentLiabilities"), k),
+        totalLiabilities: opt(pick(r, "totalLiabilitiesNetMinorityInterest"), k),
+        equity: opt(pick(r, "stockholdersEquity", "commonStockEquity"), k),
+        retainedEarnings: opt(pick(r, "retainedEarnings"), k),
+        longTermDebt: opt(pick(r, "longTermDebt", "longTermDebtAndCapitalLeaseObligation"), k),
+        totalDebt: opt(pick(r, "totalDebt"), k),
+        cash: opt(pick(r, "cashCashEquivalentsAndShortTermInvestments", "cashAndCashEquivalents"), k),
+        receivables: opt(pick(r, "accountsReceivable", "receivables"), k),
+        grossProfit: opt(pick(r, "grossProfit"), k),
+        sga: opt(pick(r, "sellingGeneralAndAdministration"), k),
+        netPPE: opt(pick(r, "netPPE"), k),
+        interestExpense: abs(opt(pick(r, "interestExpense", "interestExpenseNonOperating"), k)),
+        dilutedShares: pick(r, "dilutedAverageShares", "basicAverageShares", "ordinarySharesNumber"),
+        dilutedEPS: opt(pick(r, "dilutedEPS", "basicEPS"), k),
+        dividendsPaid: abs(opt(pick(r, "cashDividendsPaid", "commonStockDividendPaid"), k)),
+        buybacks: abs(opt(pick(r, "repurchaseOfCapitalStock", "commonStockPayments"), k)),
+        sbc: opt(pick(r, "stockBasedCompensation"), k),
       };
     });
     if (history.some((y) => !y.ebit)) warnings.push("Operating profit is missing for at least one year; check the history table.");

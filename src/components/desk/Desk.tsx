@@ -6,6 +6,7 @@ import { compute, defaultInputs, monteCarlo, starterDrivers, FORECAST_YEARS } fr
 import { big, bigUnit, cap1, dateLabel, money, money0, mult, num, pct } from "@/lib/format";
 import { readJSON, writeJSON, useStored, SETTINGS_KEY, DEFAULT_SETTINGS, WATCH_KEY, type Settings, type WatchItem } from "@/lib/client/storage";
 import type { Drivers, PeerRow, StockData, UserInputs } from "@/lib/types";
+import { applyOverrides, type Overrides } from "@/lib/overrides";
 import { SCENARIOS } from "@/lib/types";
 
 const DRIVERS: { key: keyof Drivers; label: string }[] = [
@@ -16,27 +17,11 @@ const DRIVERS: { key: keyof Drivers; label: string }[] = [
   { key: "capex", label: "Capex % of revenue" },
   { key: "wc", label: "Working capital % of revenue change" },
 ];
-type Overrides = Record<string, number>;
 interface Saved { v: 1; inputs: Omit<UserInputs, "price">; extraPeers: PeerRow[]; overrides: Overrides }
-
-function applyOverrides(d: StockData, ov: Overrides): StockData {
-  if (!Object.keys(ov).length) return d;
-  const c: StockData = { ...d, history: d.history.map((y) => ({ ...y })), bridge: { ...d.bridge }, ttm: { ...d.ttm } };
-  for (const [k, v] of Object.entries(ov)) {
-    const [kind, a, b] = k.split(":");
-    if (kind === "h" && c.history[+a]) (c.history[+a] as unknown as Record<string, number>)[b] = v;
-    else if (kind === "b") (c.bridge as unknown as Record<string, number>)[a] = v;
-    else if (kind === "t") (c.ttm as unknown as Record<string, number>)[a] = v;
-    else if (kind === "s") c.shares = v;
-  }
-  if (ov["t:netIncome"] !== undefined || ov["s:shares"] !== undefined) c.ttm.eps = c.ttm.netIncome / c.shares;
-  return c;
-}
 
 const icon = (r: string) => r === "BUY" ? <svg viewBox="0 0 14 14" aria-hidden="true"><path d="M7 2l5 7H2z" fill="currentColor" /></svg>
   : r === "SELL" ? <svg viewBox="0 0 14 14" aria-hidden="true"><path d="M7 12L2 5h10z" fill="currentColor" /></svg>
   : <svg viewBox="0 0 14 14" aria-hidden="true"><rect x="2" y="6" width="10" height="2.4" rx="1.2" fill="currentColor" /></svg>;
-
 
 export default function Desk({ data: raw, peers: autoPeers, now }: { data: StockData; peers: PeerRow[]; now: number }) {
   const key = `vd:desk:v1:${raw.symbol}`;
