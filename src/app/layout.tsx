@@ -11,7 +11,10 @@ import "./globals.css";
 const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
 const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
 
+const SITE = process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : "http://localhost:3123";
+
 export const metadata: Metadata = {
+  metadataBase: new URL(SITE),
   title: { default: "Valuation Desk: value any listed company", template: "%s · Valuation Desk" },
   description: "DCF, peer comparison, reverse DCF and Monte Carlo for any listed company, starting with every NSE stock in India. Educational, not investment advice.",
 };

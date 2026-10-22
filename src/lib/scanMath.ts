@@ -30,7 +30,12 @@ export interface Scored extends ScanRow {
   method: Method;
   valueGap: number | null; // fraction: model value / price - 1
   expectationsGap: number | null; // percentage points: growth the price implies minus reported growth
+  extreme: boolean; // model value above 3x or below a third of the price: check data and assumptions first
 }
+
+/** A model value this far from the price usually means odd data or default inputs that don't fit the company. */
+export const EXTREME_RATIO = 3;
+const isExtreme = (value: number | null, price: number) => value !== null && price > 0 && (value / price > EXTREME_RATIO || value / price < 1 / EXTREME_RATIO);
 
 /** Multiples a row can lend to a peer median, with the desk's validity filters (model.ts). */
 export function usableMultiples(r: ScanRow): PeerMedians {
@@ -113,6 +118,7 @@ export function scoreRows(rows: ScanRow[], groupOf?: (symbol: string) => string 
       compsValue, modelValue: value, method,
       valueGap: fin(gap) ? gap : null,
       expectationsGap: fin(eg) ? eg : null,
+      extreme: isExtreme(value, r.price),
     };
   });
 }
@@ -186,10 +192,11 @@ export function filterRows(rows: Scored[], f: Filters): Scored[] {
 export interface ScanSummary {
   n: number; valued: number; medianGap: number | null; above15: number;
   graded: number; healthAB: number; withReturn: number; medianReturn: number | null; medianWacc: number | null;
+  extreme: number; // rows left out of the gap figures
 }
 
 export function summarize(rows: Scored[]): ScanSummary {
-  const gaps = rows.map((r) => r.valueGap).filter(fin);
+  const gaps = rows.filter((r) => !r.extreme).map((r) => r.valueGap).filter(fin);
   const rets = rows.map((r) => r.expectedReturn).filter(fin);
   const waccs = rows.filter((r) => fin(r.expectedReturn)).map((r) => r.wacc).filter(fin);
   const ranks = rows.map((r) => gradeRank(r.health.grade)).filter((g): g is number => g !== null);
@@ -198,6 +205,7 @@ export function summarize(rows: Scored[]): ScanSummary {
     n: rows.length, valued: gaps.length, medianGap: med(gaps), above15: gaps.filter((g) => g > BUY_ABOVE).length,
     graded: ranks.length, healthAB: ranks.filter((g) => g >= 4).length,
     withReturn: rets.length, medianReturn: med(rets), medianWacc: med(waccs),
+    extreme: rows.filter((r) => r.extreme).length,
   };
 }
 

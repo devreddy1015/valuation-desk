@@ -69,5 +69,5 @@ export const DAMODARAN_OVERRIDES: Record<string, { erp: number; defaultSpread: n
 /** Banks and insurers are not suited to a free-cash-flow-to-firm DCF. */
 export function isFinancialIndustry(sector?: string, industry?: string): boolean {
   const s = `${sector ?? ""} ${industry ?? ""}`.toLowerCase();
-  return /bank|insurance|capital markets|credit services|mortgage|asset management|financial data|exchange/.test(s) && /financial/.test((sector ?? "").toLowerCase());
+  return /bank|insurance|capital markets|credit services|mortgage|asset management|financial data|exchange|conglomerate/.test(s) && /financial/.test((sector ?? "").toLowerCase());
 }

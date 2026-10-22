@@ -121,14 +121,24 @@ export function getStockData(rawSymbol: string): Promise<StockData> {
     if (rows.length < 2) throw new DataError(`Yahoo Finance has fewer than two years of annual statements for ${symbol}`, "unsupported");
 
     // currency conversion: flows at each fiscal year's average rate, the balance sheet at today's rate
-    let fxNote: string | null = null;
+    // Yahoo sometimes labels statements in one currency and serves them in another (HCL Tech: financialCurrency
+    // USD, annual statements in INR). financialData is in financialCurrency, so its trailing revenue against the
+    // latest annual revenue tells which currency the statements are really in.
+    const fdSpot = finCur !== cur.code ? await fxSpot(finCur, cur.code) : 1;
+    let stmtCur = finCur;
+    const fdRev = num(summary?.financialData?.totalRevenue), lastRev = pick(rows[rows.length - 1], "totalRevenue", "operatingRevenue");
+    if (finCur !== cur.code && fdRev && lastRev) {
+      const r = lastRev / fdRev;
+      if (r > fdSpot / 2 && r < fdSpot * 2 && !(r > 0.5 && r < 2)) stmtCur = cur.code;
+    }
+    let fxNote: string | null = stmtCur !== finCur ? `Yahoo labels these statements ${finCur} but serves them in ${cur.code}, so they are used as ${cur.code} without conversion.` : null;
     let flowRate: (end: string) => number = () => 1, spot = 1;
-    if (finCur !== cur.code) {
+    if (stmtCur !== cur.code) {
       const start = new Date(new Date(rows[0].date).getTime() - 400 * 864e5);
-      const [m, s] = await Promise.all([fxMonthly(finCur, cur.code, start), fxSpot(finCur, cur.code)]);
-      spot = s;
-      flowRate = (end: string) => fyAverage(m, end) ?? s;
-      fxNote = `Statements are reported in ${finCur}; converted to ${cur.code} at each year's average exchange rate (balance sheet and trailing figures at today's ${finCur}/${cur.code} rate of ${s.toFixed(4)}).`;
+      const m = await fxMonthly(stmtCur, cur.code, start);
+      spot = fdSpot;
+      flowRate = (end: string) => fyAverage(m, end) ?? fdSpot;
+      fxNote = `Statements are reported in ${stmtCur}; converted to ${cur.code} at each year's average exchange rate (balance sheet and trailing figures at today's ${stmtCur}/${cur.code} rate of ${fdSpot.toFixed(4)}).`;
     }
 
     const last = rows[rows.length - 1];
@@ -194,9 +204,11 @@ export function getStockData(rawSymbol: string): Promise<StockData> {
     const returned = (div.perShare / cur.factor) * shares;
 
     const fd = summary?.financialData ?? {}, ks = summary?.defaultKeyStatistics ?? {};
-    const ttmRevenue = (num(fd.totalRevenue) ?? history[history.length - 1].revenue / flowRate(bsDate)) * spot;
-    const ttmEbitda = (num(fd.ebitda) ?? (last ? (pick(last, "EBITDA", "normalizedEBITDA") ?? 0) : 0)) * spot;
-    const ttmNet = (num(ks.netIncomeToCommon) ?? pick(last, "netIncomeCommonStockholders") ?? 0) * spot;
+    // trailing figures: financialData is in financialCurrency, the statement fallbacks in the statements' currency
+    const trailing = (v: unknown, fallback: number | null) => (num(v) !== null ? (v as number) * fdSpot : (fallback ?? 0) * spot);
+    const ttmRevenue = trailing(fd.totalRevenue, history[history.length - 1].revenue / flowRate(bsDate));
+    const ttmEbitda = trailing(fd.ebitda, pick(last, "EBITDA", "normalizedEBITDA"));
+    const ttmNet = trailing(ks.netIncomeToCommon, pick(last, "netIncomeCommonStockholders"));
 
     const trend = (summary?.earningsTrend?.trend ?? []) as any[];
     const lastGrowth = history.length > 1 ? history[history.length - 1].revenue / history[history.length - 2].revenue - 1 : 0;
@@ -233,7 +245,7 @@ export function getStockData(rawSymbol: string): Promise<StockData> {
     const data: StockData = {
       symbol, name: quote.longName || quote.shortName || symbol, exchange: quote.fullExchangeName || quote.exchange || "",
       country, sector, industry,
-      currency: cur.code, financialCurrency: finCur, fxNote,
+      currency: cur.code, financialCurrency: stmtCur, fxNote,
       price, priceTime: new Date(quote.regularMarketTime ?? Date.now()).toISOString(),
       marketCap, shares,
       hi52: (num(quote.fiftyTwoWeekHigh) ?? price * cur.factor) / cur.factor,

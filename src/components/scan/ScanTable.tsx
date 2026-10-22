@@ -81,7 +81,8 @@ function ScanRowView({ r, calls }: { r: Scored; calls: boolean }) {
       <td className="left grp">{r.group}</td>
       <td>{money(r.price, cur)}</td>
       <td>{money0(r.modelValue, cur)}<span className="sub">{method(r)}</span></td>
-      <td>{fin(r.valueGap) ? <span className={r.valueGap >= 0 ? "scan-pos" : "scan-neg"}>{pct(r.valueGap, 1, true)}</span> : "–"}</td>
+      <td>{fin(r.valueGap) ? <span className={r.valueGap >= 0 ? "scan-pos" : "scan-neg"}>{pct(r.valueGap, 1, true)}</span> : "–"}
+        {r.extreme && <span className="sub scan-check">Check first: far from the price, so the data or the default inputs may not fit</span>}</td>
       <td>
         {fin(r.expectedReturn) ? <>{pct(r.expectedReturn)} <span className="muted">vs {pct(r.wacc)}</span></> : "–"}
         {fin(r.expectedReturn) && fin(r.wacc) && <span className="sub">{r.expectedReturn >= r.wacc ? "above" : "below"} the required return</span>}

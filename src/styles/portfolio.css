@@ -101,3 +101,5 @@
   .pf-table { min-width: 0; font-size: 10px; }
   .pf-table th:first-child, .pf-table td:first-child { position: static; }
 }
+/* row headers are <th> for screen readers but should read like body cells */
+.pf-table tbody th, .pf-table tfoot th { text-transform: none; font-family: var(--font-ui); font-size: 13.5px; letter-spacing: normal; color: var(--ink); white-space: normal; border-bottom: 1px solid var(--line); padding: 7px 8px; }

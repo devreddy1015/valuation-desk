@@ -1,12 +1,20 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
 import Num from "./Num";
+import Bands from "./Bands";
+import ExcelButton from "./ExcelButton";
+import Health from "./Health";
+import { ReturnsPanel, Story } from "./Insight";
+import ShareButton from "./ShareButton";
+import SharedBanner from "./SharedBanner";
 import { FcfChart, FootballField, Histogram, RevenueChart, type RangeRow } from "./charts";
 import { compute, defaultInputs, monteCarlo, starterDrivers, FORECAST_YEARS } from "@/lib/model";
 import { big, bigUnit, cap1, dateLabel, money, money0, mult, num, pct } from "@/lib/format";
 import { readJSON, writeJSON, useStored, SETTINGS_KEY, DEFAULT_SETTINGS, WATCH_KEY, type Settings, type WatchItem } from "@/lib/client/storage";
 import type { Drivers, PeerRow, StockData, UserInputs } from "@/lib/types";
 import { applyOverrides, type Overrides } from "@/lib/overrides";
+import { healthCheck } from "@/lib/quality";
+import { clearShareHash, readSharedFromHash, type ExportPayload, type SharedState } from "@/lib/client/share";
 import { SCENARIOS } from "@/lib/types";
 
 const DRIVERS: { key: keyof Drivers; label: string }[] = [
@@ -36,26 +44,42 @@ export default function Desk({ data: raw, peers: autoPeers, now }: { data: Stock
   const [peerMsg, setPeerMsg] = useState<string | null>(null);
   const [resetArmed, setResetArmed] = useState(false);
   const [forceDcf, setForceDcf] = useState(false);
+  const [shared, setShared] = useState(false); // showing someone's share link: not saved until kept
   const showDcf = !raw.financial || forceDcf;
 
   // load saved inputs for this stock (prices always start from the live quote)
   /* eslint-disable react-hooks/set-state-in-effect -- per-stock state lives in localStorage, read after mount */
-  useEffect(() => {
+  const loadOwn = () => {
     const s = readJSON<Saved | null>(key, null);
-    if (s && s.v === 1 && s.inputs?.assume) {
-      setOverrides(s.overrides ?? {});
-      setExtraPeers(s.extraPeers ?? []);
-      setInp({ ...defaultInputs(raw, autoPeers), ...s.inputs, price: raw.price });
-    }
+    const ok = !!(s && s.v === 1 && s.inputs?.assume);
+    setOverrides(ok ? s!.overrides ?? {} : {});
+    setExtraPeers(ok ? s!.extraPeers ?? [] : []);
+    setInp(ok ? { ...defaultInputs(raw, autoPeers), ...s!.inputs, price: raw.price } : defaultInputs(raw, autoPeers));
+  };
+  useEffect(() => {
+    loadOwn();
     setLoaded(true);
+    // a share link (#v=...) wins over saved inputs, on today's live price, until the user keeps it
+    let off = false;
+    const fromHash = () => void readSharedFromHash(raw.symbol).then((sh) => {
+      if (off || !sh) return;
+      setShared(true);
+      setOverrides(sh.overrides);
+      setExtraPeers(sh.extraPeers);
+      setInp({ ...defaultInputs(raw, autoPeers), ...sh.inputs, price: raw.price });
+    });
+    fromHash();
+    window.addEventListener("hashchange", fromHash); // a link pasted into a tab already on this stock
+    return () => { off = true; window.removeEventListener("hashchange", fromHash); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- loadOwn reads the same key, raw and autoPeers
   }, [key, raw, autoPeers]);
   /* eslint-enable react-hooks/set-state-in-effect */
   useEffect(() => {
-    if (!loaded) return;
+    if (!loaded || shared) return;
     const rest: Omit<UserInputs, "price"> & { price?: number } = { ...inp };
     delete rest.price;
     writeJSON(key, { v: 1, inputs: rest, extraPeers, overrides } satisfies Saved);
-  }, [inp, extraPeers, overrides, loaded, key]);
+  }, [inp, extraPeers, overrides, loaded, shared, key]);
 
   const R = useMemo(() => compute(inp, data, peers, now), [inp, data, peers, now]);
   const MC = useMemo(() => monteCarlo(inp, R), [inp, R]);
@@ -67,14 +91,14 @@ export default function Desk({ data: raw, peers: autoPeers, now }: { data: Stock
   // keep the home-page desk list current
   const lastSnap = useRef("");
   useEffect(() => {
-    if (!loaded) return;
+    if (!loaded || shared) return;
     const item: WatchItem = { symbol: data.symbol, name: data.name, currency: cur, price: inp.price, pt: R.ok ? R.pt : null, upside: R.ok ? R.upside : null, rating: R.rating, viewed: new Date(now).toISOString() };
     const sig = JSON.stringify([item.pt, item.price, item.rating]);
     if (sig === lastSnap.current) return;
     lastSnap.current = sig;
     const list = readJSON<WatchItem[]>(WATCH_KEY, []).filter((w) => w.symbol !== item.symbol);
     writeJSON(WATCH_KEY, [item, ...list].slice(0, 50));
-  }, [R.pt, R.upside, R.rating, R.ok, inp.price, loaded, data.symbol, data.name, cur, now]);
+  }, [R.pt, R.upside, R.rating, R.ok, inp.price, loaded, shared, data.symbol, data.name, cur, now]);
 
   const flash = (m: string) => { setToast(m); setTimeout(() => setToast(null), 2400); };
   const set = (patch: Partial<UserInputs>) => setInp((p) => ({ ...p, ...patch }));
@@ -101,7 +125,15 @@ export default function Desk({ data: raw, peers: autoPeers, now }: { data: Stock
   const histYears = data.history.map((y) => y.label);
   const scenRev = { bear: R.scen.bear.rev, base: R.scen.base.rev, bull: R.scen.bull.rev };
 
+  const health = useMemo(() => healthCheck(data), [data]);
+
   // ---------- client outputs ----------
+  const withoutPrice = (): SharedState["inputs"] => { const rest: SharedState["inputs"] = { ...inp }; delete rest.price; return rest; };
+  const shareState = (): SharedState => ({ v: 1, symbol: data.symbol, inputs: withoutPrice(), overrides, extraPeers });
+  const excelPayload = (): ExportPayload => ({ symbol: data.symbol, inputs: inp, overrides, extraPeers, calls, now });
+  const shareText = `${data.name} (${data.symbol}): ${calls ? "price target" : "value estimate"} ${R.ok ? money(R.pt, cur) : "–"} vs a price of ${money(inp.price, cur)}${R.ok ? ` (${pct(R.upside, 1, true)})` : ""}. Educational model, not investment advice.`;
+  const keepShared = () => { setShared(false); clearShareHash(); flash("Saved as your own valuation"); };
+  const dropShared = () => { setShared(false); clearShareHash(); loadOwn(); flash("Back to your own inputs"); };
   function summaryText(): string {
     const L = R.live, lines: string[] = [];
     lines.push(`${data.name} (${data.symbol}), valuation summary, ${dateLabel(new Date(now).toISOString())}`);
@@ -168,6 +200,7 @@ export default function Desk({ data: raw, peers: autoPeers, now }: { data: Stock
     if (!resetArmed) { setResetArmed(true); setTimeout(() => setResetArmed(false), 3500); return; }
     setResetArmed(false);
     try { localStorage.removeItem(key); } catch { /* storage blocked */ }
+    if (shared) { setShared(false); clearShareHash(); }
     setOverrides({}); setExtraPeers([]); setInp(defaultInputs(raw, autoPeers));
     flash("Back to the starting data");
   }
@@ -208,11 +241,14 @@ export default function Desk({ data: raw, peers: autoPeers, now }: { data: Stock
             <button type="button" role="radio" aria-checked={calls} onClick={() => setSettings({ ...settings, calls: true })}>Show calls</button>
           </div>
           <button type="button" className="btn primary" onClick={copySummary}>Copy client summary</button>
+          <ShareButton getState={shareState} summary={shareText} />
+          <ExcelButton getPayload={excelPayload} symbol={data.symbol} />
           <button type="button" className="btn" onClick={downloadCsv}>Download CSV</button>
           <button type="button" className="btn" onClick={() => window.print()}>Print report</button>
           <button type="button" className={`btn${resetArmed ? " primary" : ""}`} onClick={resetAll}>{resetArmed ? "Click again to reset" : "Reset"}</button>
         </div>
       </div>
+      {shared && <SharedBanner onKeep={keepShared} onDiscard={dropShared} />}
       {calls && <p className="note no-print" style={{ marginBottom: 10 }}>Calls are model outputs for learning. In India, giving buy or sell recommendations to clients can require SEBI Research Analyst registration.</p>}
 
       <section className="verdict" aria-live="polite" aria-label="Result">
@@ -321,6 +357,8 @@ export default function Desk({ data: raw, peers: autoPeers, now }: { data: Stock
             <div className="warnbox" role="note"><b>Check before you rely on this</b>{data.warnings.map((w) => <span key={w}>{w}</span>)}</div>
           )}
 
+          <Story data={data} inp={inp} R={R} MC={showDcf ? MC : null} health={health} calls={calls} />
+
           <section className="card section" aria-labelledby="ff-h">
             <div className="section-head"><h2 id="ff-h">Football field</h2><p>Every valuation range side by side, against today&apos;s price and the {calls ? "price target" : "value estimate"}. Per share, in {cur}.</p></div>
             <FootballField rows={ffRows} price={inp.price} target={R.ok ? R.pt : null} currency={cur} targetLabel={targetLabel} />
@@ -330,6 +368,8 @@ export default function Desk({ data: raw, peers: autoPeers, now }: { data: Stock
               </tbody></table></div>
             </details>
           </section>
+
+          <Health data={data} report={health} />
 
           {!showDcf && (
             <section className="card section" aria-labelledby="fin-h">
@@ -345,6 +385,8 @@ export default function Desk({ data: raw, peers: autoPeers, now }: { data: Stock
               <div className="imp"><span className="label">Implied EBIT margin</span><span className="v num">{Number.isFinite(R.impliedMargin) ? R.impliedMargin.toFixed(1) + "%" : "–"}</span><span className="small" style={{ color: "var(--ink-2)" }}>Your {inp.scenario} case averages {R.liveAvgMargin.toFixed(1)}%; the last reported year was {pct(H.marginLast)}.</span></div>
             </div>
           </section>
+
+          <ReturnsPanel data={data} inp={inp} R={R} />
 
           <section className="card section" aria-labelledby="sc-h">
             <div className="section-head"><h2 id="sc-h">Three scenarios</h2><p>Revenue path for each scenario and its value per share with the same WACC and terminal growth.</p></div>
@@ -475,6 +517,8 @@ export default function Desk({ data: raw, peers: autoPeers, now }: { data: Stock
               </tbody>
             </table></div>
           </section>
+
+          <Bands data={data} price={inp.price} />
 
           <section className="card section" aria-labelledby="pi-h">
             <div className="section-head"><h2 id="pi-h">Pitch summary</h2><p>Three pieces of evidence that lead to a view. The client summary button copies all of this as text.</p></div>

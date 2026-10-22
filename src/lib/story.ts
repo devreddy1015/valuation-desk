@@ -109,7 +109,7 @@ export function storyFor({ data, inp, R, MC, ret, health, calls }: StoryInput): 
     // 3. expected return against the required return
     if (ret?.irr != null && fin(ret.spread)) {
       const s = ret.spread, close = Math.abs(s) <= STORY_RULES.spread;
-      points.push({ key: "return", tone: close ? "neutral" : s > 0 ? "good" : "bad", text: `If your ${sc} case comes true, the whole business would return about ${pct(ret.irr)} a year at today's price, ${close ? "about the same as" : `${pct(Math.abs(s))} ${s > 0 ? "more" : "less"} than`} the ${pct(ret.wacc)} a year the model requires (the WACC).` });
+      points.push({ key: "return", tone: close ? "neutral" : s > 0 ? "good" : "bad", text: `If your ${sc} case comes true, the whole business would return about ${pct(ret.irr)} a year at today's price, ${close ? "about the same as" : `${(Math.abs(s) * 100).toFixed(1)} percentage points ${s > 0 ? "more" : "less"} than`} the ${pct(ret.wacc)} a year the model requires (the WACC).` });
     } else if (ret?.irrStatus === "below-range") {
       points.push({ key: "return", tone: "bad", text: `Even a required return just above terminal growth would not make your ${sc} case worth today's price, so the price asks for more than this forecast.` });
     } else if (ret?.irrStatus === "above-range") {

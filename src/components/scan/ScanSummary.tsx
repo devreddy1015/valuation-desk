@@ -9,7 +9,7 @@ export default function ScanSummary({ s }: { s: Summary }) {
       <div className="mini">
         <span className="k">Median value gap</span>
         <span className="v">{pct(s.medianGap, 1, true)}</span>
-        <span className="n">{s.valued ? `Middle of ${s.valued} valued stocks` : "No stock valued yet"}</span>
+        <span className="n">{s.valued ? `Middle of ${s.valued} valued stocks${s.extreme ? `; ${s.extreme} far from the price left out` : ""}` : "No stock valued yet"}</span>
       </div>
       <div className="mini">
         <span className="k">Gap above +15%</span>

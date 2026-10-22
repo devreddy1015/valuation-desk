@@ -34,7 +34,8 @@ export function scanRowFrom(data: StockData, now: number): ScanRow {
     dcfValue: dcfOk ? orNull(R.live.vps) : null,
     wacc: dcfLike ? orNull(R.wacc) : null,
     impliedGrowth: dcfLike ? orNull(R.impliedGrowth) : null,
-    histGrowth: fin(R.H.growth) ? R.H.growth * 100 : null,
+    // above 100% a year the average says more about a tiny first year or an acquisition than about the business
+    histGrowth: fin(R.H.growth) && Math.abs(R.H.growth) <= 1 ? R.H.growth * 100 : null,
     expectedReturn: dcfLike ? orNull(ret?.irr) : null,
     growthShare: dcfLike ? orNull(ret?.growthShare) : null,
     fcfYield: dcfLike ? orNull(R.fcfYield) : null,

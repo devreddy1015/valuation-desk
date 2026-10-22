@@ -79,7 +79,7 @@ function returnVerdict(ret: Returns, scenario: string): { tone: Tone; text: stri
   const s = ret.spread, close = Math.abs(s) <= 0.005;
   return {
     tone: close ? "neutral" : s > 0 ? "good" : "bad",
-    text: `If your ${scenario} case comes true, today's price earns about ${pct(ret.irr)} a year, ${close ? "about the same as" : `${pct(Math.abs(s))} ${s > 0 ? "more" : "less"} than`} the ${pct(ret.wacc)} the model requires.`,
+    text: `If your ${scenario} case comes true, today's price earns about ${pct(ret.irr)} a year, ${close ? "about the same as" : `${(Math.abs(s) * 100).toFixed(1)} percentage points ${s > 0 ? "more" : "less"} than`} the ${pct(ret.wacc)} the model requires.`,
   };
 }
 
@@ -87,7 +87,7 @@ export function ReturnsPanel({ data, inp, R }: { data: StockData; inp: UserInput
   const ret = useMemo(() => returnsFor(inp, data, R), [inp, data, R]);
   const cur = data.currency, price = inp.price, u = bigUnit(cur);
   const eps = data.ttm.eps;
-  const bondSub = `what a ${cur} 10-year government bond pays`;
+  const bondSub = `what the ${cur} 10-year government bond pays`;
 
   if (data.financial) {
     return (
@@ -179,7 +179,7 @@ export function ReturnsPanel({ data, inp, R }: { data: StockData; inp: UserInput
         <div className="scroll"><table className="data"><thead><tr><th>Measure</th><th>Value</th></tr></thead><tbody>
           <tr><td>Expected return (IRR), {inp.scenario} case</td><td>{pct(ret.irr)}</td></tr>
           <tr><td>Required return (WACC)</td><td>{pct(ret.wacc)}</td></tr>
-          <tr><td>Expected minus required</td><td>{pct(ret.spread, 1, true)}</td></tr>
+          <tr><td>Expected minus required</td><td>{fin(ret.spread) ? `${ret.spread > 0 ? "+" : ret.spread < 0 ? "−" : ""}${Math.abs(ret.spread * 100).toFixed(1)} pts` : "–"}</td></tr>
           <tr><td>Cost of equity</td><td>{pct(ret.ke)}</td></tr>
           <tr><td>10-year government bond</td><td>{pct(ret.bondYield)}</td></tr>
           <tr><td>Earnings power value per share</td><td>{money(epv, cur)}</td></tr>

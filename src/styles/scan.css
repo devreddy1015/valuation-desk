@@ -73,3 +73,4 @@ details.scan-method[open] > summary::after { content: "–"; }
 
 @media (prefers-reduced-motion: reduce) { .scan-bar > span { transition: none; } }
 @media print { .scan-pick, .scan-controls, .scan-failed, .scan-actions { display: none !important; } .scan-table th:first-child, .scan-table td:first-child { position: static; box-shadow: none; } }
+.scan-check { color: var(--warn); white-space: normal; max-width: 180px; }
