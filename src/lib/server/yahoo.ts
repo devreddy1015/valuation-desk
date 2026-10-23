@@ -47,9 +47,10 @@ export interface SearchHit { symbol: string; name: string; exchange: string; typ
 export interface QuoteLite { symbol: string; name: string; price: number; marketCap: number; changePct: number | null; currency: string }
 
 /**
- * Price, market value and today's move for many symbols: batches of 50 in parallel, then any symbol a
- * batch left out (Yahoo sometimes drops a few, or their market cap) asked for again on its own.
- * Non-equities and symbols with no market value are dropped.
+ * Price, market value and today's move for many symbols: batches of 50 in parallel. Yahoo's quotes
+ * leave out the market cap for some Indian companies when asked from outside India (Reliance and TCS
+ * from Vercel's US servers), so for any symbol still without one, the company summary's market cap or
+ * share count fills it in. Non-equities and symbols with no market value are dropped.
  */
 export async function quotesFor(symbols: string[]): Promise<QuoteLite[]> {
   const fields = ["symbol", "longName", "shortName", "regularMarketPrice", "marketCap", "sharesOutstanding", "regularMarketChangePercent", "currency", "quoteType"];
@@ -68,8 +69,13 @@ export async function quotesFor(symbols: string[]): Promise<QuoteLite[]> {
   for (const rows of results) for (const q of (rows as any[] | null) ?? []) { const l = lite(q); if (l) got.set(l.symbol, l); }
   const missing = symbols.filter((s) => !got.has(s));
   for (let i = 0; i < missing.length; i += 4) {
-    const again = await Promise.all(missing.slice(i, i + 4).map((s) => retry(() => yf.quote(s, {}, MO)).catch(() => null)));
-    for (const q of again) { const l = lite(q); if (l) got.set(l.symbol, l); }
+    const again = await Promise.all(missing.slice(i, i + 4).map((s) =>
+      retry(() => yf.quoteSummary(s, { modules: ["price", "defaultKeyStatistics"] }, MO)).then((r: any) => lite({
+        symbol: s, quoteType: r?.price?.quoteType, currency: r?.price?.currency, longName: r?.price?.longName, shortName: r?.price?.shortName,
+        regularMarketPrice: r?.price?.regularMarketPrice, regularMarketChangePercent: num(r?.price?.regularMarketChangePercent) !== null ? r.price.regularMarketChangePercent * 100 : null,
+        marketCap: r?.price?.marketCap, sharesOutstanding: r?.defaultKeyStatistics?.sharesOutstanding ?? r?.defaultKeyStatistics?.impliedSharesOutstanding,
+      })).catch(() => null)));
+    for (const l of again) if (l) got.set(l.symbol, l);
   }
   return symbols.map((s) => got.get(s)).filter((x): x is QuoteLite => !!x);
 }
