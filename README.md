@@ -4,7 +4,7 @@ Find, check and value any listed company, with live prices and five years of sta
 
 - `/scan`: the opportunity scanner. Values every stock in a Nifty index (50, Next 50, Midcap, Smallcap, sector and theme indices) or the Dow 30, with peers taken from the same list, and ranks them by value gap, expected return, the growth the price implies against history, and business health.
 - `/portfolio`: the portfolio X-ray. Import holdings (Zerodha Kite/Console CSV, any CSV, or pasted lines) and read the whole portfolio through the model: value gap, expected return, expectations gap, health, concentration and mix.
-- `/stock/<SYMBOL>`: the valuation desk for one company (for example `INFY.NS`, `500325.BO`, `AAPL`, `BP.L`, `7203.T`): DCF with bear/base/bull, peers, reverse DCF, Monte Carlo, sensitivity, a plain-English story, expected return and earnings power value, a business health check (Piotroski, Altman Z'', Beneish M), the P/E and P/B band against its own past, share links, a client summary, CSV, print, and an Excel model with live formulas.
+- `/stock/<SYMBOL>`: the valuation desk for one company (for example `INFY.NS`, `500325.BO`, `AAPL`, `BP.L`, `7203.T`): DCF with bear/base/bull, peers, reverse DCF, Monte Carlo, sensitivity, a plain-English story, expected return and earnings power value, a business health check (Piotroski, Altman Z'', Beneish M), the P/E and P/B band against its own past, share links, a client summary, what analysts expect (targets and ratings) set against the model, a risk panel with the one-year price range, CSV, print, and an Excel model with live formulas.
 - `/india`: every NSE-listed company, A to Z; `/india/top`, `/us/top`, `/uk/top`, `/japan/top`, `/germany/top` and `/china/top`: the 50 most valuable companies in each market, ranked live by market value (also scanner lists).
 
 Educational model, not investment advice.
@@ -25,7 +25,7 @@ npx vercel login
 npx vercel deploy --prod
 ```
 
-No environment variables or API keys are needed.
+No environment variables or API keys are needed. The Vercel project is connected to this repository, so every push to `main` deploys to production and every other branch gets a preview.
 
 ## Data and its limits
 
@@ -38,8 +38,12 @@ No environment variables or API keys are needed.
 ## Where things are
 
 - `src/lib/model.ts`: the valuation engine (pure functions), tested in `src/lib/model.test.ts`
-- `src/lib/quality.ts` (health check), `returns.ts` (IRR, EPV), `story.ts` (plain English), `bands.ts` (P/E and P/B history), `scanMath.ts` (scanner peers and ranking), `portfolio.ts` (import parsers and X-ray), `excel.ts` (workbook builder): pure and unit-tested
+- `src/lib/quality.ts` (health check), `returns.ts` (IRR, EPV), `story.ts` (plain English), `bands.ts` (P/E and P/B history), `scanMath.ts` (scanner peers and ranking), `risk.ts` (volatility, drawdowns, one-year range), `portfolio.ts` (import parsers and X-ray), `excel.ts` (workbook builder): pure and unit-tested
 - `src/lib/client/share.ts`: share-link encoding and strict validation (also used by `/api/excel`)
 - `src/lib/server/`: data adapters (Yahoo, NSE list and index constituents, Damodaran table, price history) with an in-memory cache
 - `src/components/`: the desk, scanner and portfolio interfaces and charts
-- `src/app/`: pages and API routes (`/api/search`, `/api/peer`, `/api/scan/row`, `/api/scan/universe`, `/api/history`, `/api/fx`, `POST /api/excel`), plus link-preview images
+- `src/app/`: pages and API routes (`/api/search`, `/api/peer`, `/api/scan/row`, `/api/scan/universe`, `/api/history`, `/api/risk`, `/api/fx`, `POST /api/excel`), plus link-preview images
+
+## License
+
+The code is under the [MIT License](LICENSE). It covers this code only, not the market data it fetches: Yahoo Finance, NSE and Damodaran data stay under their own terms.
