@@ -1,6 +1,6 @@
 import "server-only";
-import { cached, DAY } from "./cache";
-import { DataError } from "./yahoo";
+import { cached, DAY, MIN } from "./cache";
+import { DataError, quotesFor } from "./yahoo";
 import type { Universe, UniverseInfo, UniverseMember } from "../scanTypes";
 
 // Lists of stocks the scanner can rank. NSE indices come from NSE's own constituent files
@@ -12,12 +12,13 @@ export const FAMILIES: UniverseFamily[] = ["India · broad market", "India · se
 /** A registry entry as the picker shows it. */
 export interface UniverseListing extends UniverseInfo { family: UniverseFamily }
 
-interface Def { id: string; name: string; description: string; family: UniverseFamily; size: number | null; csv?: string; members?: UniverseMember[] }
+interface Def { id: string; name: string; description: string; family: UniverseFamily; size: number | null; csv?: string; members?: UniverseMember[]; ranked?: boolean }
 
 const nse = (id: string, name: string, family: UniverseFamily, description: string, size: number | null = null): Def => ({ id, name, family, description, size, csv: id });
 
 // Sizes are given only where the index rules fix the count; sector indices vary.
 const NSE: Def[] = [
+  { id: "top50", name: "India's 50 most valuable", family: "India · broad market", size: 50, ranked: true, description: "The 50 largest Indian companies by today's market value, ranked live from the Nifty 200." },
   nse("nifty50", "Nifty 50", "India · broad market", "India's 50 largest, most traded companies on NSE.", 50),
   nse("niftynext50", "Nifty Next 50", "India · broad market", "The 50 companies ranked just after the Nifty 50: the next large caps.", 50),
   nse("nifty100", "Nifty 100", "India · broad market", "The Nifty 50 and Nifty Next 50 together.", 100),
@@ -110,6 +111,39 @@ export function parseIndexCsv(csv: string): UniverseMember[] {
   return out;
 }
 
+/** An NSE index's constituents from NSE's own file, cached for a day. Throws DataError. */
+function indexMembers(csv: string, name: string): Promise<UniverseMember[]> {
+  const url = indexCsvUrl(csv);
+  return cached("index:" + csv, DAY, async () => {
+    const res = await fetch(url, { headers: { "User-Agent": UA, Accept: "text/csv,*/*" }, cache: "no-store", signal: AbortSignal.timeout(10_000) }).catch(() => null);
+    if (!res?.ok) throw new DataError(`NSE's ${name} file did not load${res ? ` (status ${res.status})` : ""}`, "upstream");
+    const members = parseIndexCsv(await res.text());
+    if (members.length < 5) throw new DataError(`NSE's ${name} file looks incomplete`, "upstream");
+    return members;
+  });
+}
+
+export interface RankedCompany { rank: number; symbol: string; name: string; industry: string; price: number; marketCap: number; changePct: number | null }
+
+/**
+ * India's most valuable listed companies, ranked by today's market value (price × shares). The
+ * candidates are the Nifty 200, which holds every large company except very recent listings; the
+ * ranking is refreshed every 15 minutes from one batch of Yahoo quotes.
+ */
+export function getTopIndia(n = 50): Promise<{ companies: RankedCompany[]; asOf: string; source: string }> {
+  return cached("top-india", 15 * MIN, async () => {
+    const members = await indexMembers("nifty200", "Nifty 200");
+    const quotes = await quotesFor(members.map((m) => m.symbol));
+    if (quotes.length < 100) throw new DataError("Market values for the Nifty 200 did not load", "upstream");
+    const industry = new Map(members.map((m) => [m.symbol, m.group ?? ""]));
+    const companies = quotes
+      .sort((a, b) => b.marketCap - a.marketCap)
+      .slice(0, 50)
+      .map((q, i) => ({ rank: i + 1, symbol: q.symbol, name: q.name, industry: industry.get(q.symbol) ?? "", price: q.price, marketCap: q.marketCap, changePct: q.changePct }));
+    return { companies, asOf: new Date().toISOString(), source: "Nifty 200 constituents (NSE) ranked by market value from Yahoo Finance quotes (delayed)" };
+  }).then((r) => ({ ...r, companies: r.companies.slice(0, n) }));
+}
+
 /** A universe with its members; NSE files are cached for a day. Throws DataError. */
 export function getUniverse(id: string): Promise<Universe> {
   const d = BY_ID.get(id);
@@ -117,12 +151,10 @@ export function getUniverse(id: string): Promise<Universe> {
   if (d.members) {
     return Promise.resolve({ id, name: d.name, description: d.description, source: `S&P Dow Jones Indices announcements; list checked ${DOW_AS_OF}`, members: d.members });
   }
-  const url = indexCsvUrl(d.csv!);
-  return cached("universe:" + id, DAY, async () => {
-    const res = await fetch(url, { headers: { "User-Agent": UA, Accept: "text/csv,*/*" }, cache: "no-store", signal: AbortSignal.timeout(10_000) }).catch(() => null);
-    if (!res?.ok) throw new DataError(`NSE's ${d.name} file did not load${res ? ` (status ${res.status})` : ""}`, "upstream");
-    const members = parseIndexCsv(await res.text());
-    if (members.length < 5) throw new DataError(`NSE's ${d.name} file looks incomplete`, "upstream");
-    return { id, name: d.name, description: d.description, source: `NSE index constituents (${url}), refreshed daily`, members: members.slice(0, 150) };
-  });
+  if (d.ranked) {
+    return getTopIndia(50).then((t) => ({ id, name: d.name, description: d.description, source: t.source, members: t.companies.map((c) => ({ symbol: c.symbol, name: c.name, ...(c.industry ? { group: c.industry } : {}) })) }));
+  }
+  return indexMembers(d.csv!, d.name).then((members) => ({
+    id, name: d.name, description: d.description, source: `NSE index constituents (${indexCsvUrl(d.csv!)}), refreshed daily`, members: members.slice(0, 150),
+  }));
 }

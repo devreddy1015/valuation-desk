@@ -57,3 +57,8 @@ export function dateLabel(iso: string): string {
   return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
 }
 export const cap1 = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
+/** A rupee market value in lakh crore, the unit Indian markets quote company size in: "₹16.10 lakh cr". */
+export function lakhCrore(v: number | null | undefined): string {
+  return ok(v) ? `₹${(v / 1e12).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} lakh cr` : "–";
+}

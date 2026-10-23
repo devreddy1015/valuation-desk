@@ -334,3 +334,10 @@ table.data tbody tr:hover td { background: color-mix(in oklab, var(--accent-wash
 /* home: tool tiles */
 .tile.tool { min-height: 200px; }
 .tile.tool .accent { margin-top: auto; }
+
+/* India's most valuable companies */
+.top-table .top-name { color: var(--ink); font-weight: 600; text-decoration: none; }
+.top-table .top-name:hover { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+.top-table td.left { white-space: normal; }
+.top-table .top-up { color: var(--good); }
+.top-table .top-down { color: var(--bad); }

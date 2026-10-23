@@ -5,7 +5,7 @@ Find, check and value any listed company, with live prices and five years of sta
 - `/scan`: the opportunity scanner. Values every stock in a Nifty index (50, Next 50, Midcap, Smallcap, sector and theme indices) or the Dow 30, with peers taken from the same list, and ranks them by value gap, expected return, the growth the price implies against history, and business health.
 - `/portfolio`: the portfolio X-ray. Import holdings (Zerodha Kite/Console CSV, any CSV, or pasted lines) and read the whole portfolio through the model: value gap, expected return, expectations gap, health, concentration and mix.
 - `/stock/<SYMBOL>`: the valuation desk for one company (for example `INFY.NS`, `500325.BO`, `AAPL`, `BP.L`, `7203.T`): DCF with bear/base/bull, peers, reverse DCF, Monte Carlo, sensitivity, a plain-English story, expected return and earnings power value, a business health check (Piotroski, Altman Z'', Beneish M), the P/E and P/B band against its own past, share links, a client summary, CSV, print, and an Excel model with live formulas.
-- `/india`: every NSE-listed company, A to Z.
+- `/india`: every NSE-listed company, A to Z; `/india/top`: the 50 most valuable, ranked live by market value (also a scanner list).
 
 Educational model, not investment advice.
 

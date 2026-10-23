@@ -2,11 +2,12 @@ import Link from "next/link";
 import { Suspense } from "react";
 import { connection } from "next/server";
 import SearchBox from "@/components/SearchBox";
+import TopCompanies from "@/components/TopCompanies";
 import Watchlist from "@/components/Watchlist";
 import { getNseListings } from "@/lib/server/nse";
 
 const QUICK = [
-  ["INFY.NS", "Infosys"], ["TCS.NS", "TCS"], ["RELIANCE.NS", "Reliance"], ["HDFCBANK.NS", "HDFC Bank"], ["BHARTIARTL.NS", "Bharti Airtel"],
+  ["INFY.NS", "Infosys"], ["TCS.NS", "TCS"], ["RELIANCE.NS", "Reliance"], ["HDFCBANK.NS", "HDFC Bank"], ["BHARTIARTL.NS", "Bharti Airtel"], ["JIOFIN.NS", "Jio Financial"],
   ["AAPL", "Apple"], ["MSFT", "Microsoft"], ["7203.T", "Toyota"], ["SAP.DE", "SAP"], ["0700.HK", "Tencent"],
 ];
 
@@ -82,6 +83,14 @@ export default function Home() {
         </section>
 
         <Watchlist />
+
+        <section className="card section" aria-labelledby="top10-h">
+          <div className="section-head">
+            <h2 id="top10-h">India&apos;s most valuable companies</h2>
+            <p>The ten largest by today&apos;s market value. <Link className="accent" href="/india/top">See all 50</Link> or <Link className="accent" href="/scan?u=top50">scan them</Link> to find which look cheap.</p>
+          </div>
+          <Suspense fallback={<p className="muted" aria-busy="true">Loading today&apos;s market values…</p>}><TopCompanies n={10} compact /></Suspense>
+        </section>
 
         <section aria-labelledby="mk-h" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           <div className="section-head"><h2 id="mk-h">Every market</h2><p>Search covers the exchanges Yahoo Finance lists. For India you can also browse every company on the NSE.</p></div>

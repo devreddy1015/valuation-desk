@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { connection } from "next/server";
 import { Suspense } from "react";
 import IndiaList from "@/components/IndiaList";
@@ -25,7 +26,7 @@ export default function IndiaPage() {
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         <p className="label">India · National Stock Exchange</p>
         <h1 style={{ fontSize: "clamp(28px, 4vw, 44px)", letterSpacing: "-0.03em", fontWeight: 600 }}>Every NSE-listed company.<span className="accent"> Pick one to value.</span></h1>
-        <p className="muted" style={{ maxWidth: "70ch" }}>From NSE&apos;s own equity list, refreshed daily. BSE-only companies are reachable through search with the .BO suffix.</p>
+        <p className="muted" style={{ maxWidth: "70ch" }}>From NSE&apos;s own equity list, refreshed daily. BSE-only companies are reachable through search with the .BO suffix. Looking for the giants? See <Link className="accent" href="/india/top">India&apos;s 50 most valuable companies</Link>.</p>
       </div>
       <Suspense fallback={<section className="card empty" aria-busy="true"><p className="muted">Loading the NSE list…</p></section>}><Listings /></Suspense>
     </div>

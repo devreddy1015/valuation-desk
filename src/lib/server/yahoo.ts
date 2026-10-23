@@ -44,6 +44,26 @@ const millions = (n: number) => `${(n / 1e6).toLocaleString("en-US", { maximumFr
 
 export interface SearchHit { symbol: string; name: string; exchange: string; type: string }
 
+export interface QuoteLite { symbol: string; name: string; price: number; marketCap: number; changePct: number | null; currency: string }
+
+/** Price, market value and today's move for many symbols, 50 to a Yahoo call. Non-equities and symbols without a market cap are dropped. */
+export async function quotesFor(symbols: string[]): Promise<QuoteLite[]> {
+  const out: QuoteLite[] = [];
+  for (let i = 0; i < symbols.length; i += 50) {
+    const batch = symbols.slice(i, i + 50);
+    const fields = ["symbol", "longName", "shortName", "regularMarketPrice", "marketCap", "regularMarketChangePercent", "currency", "quoteType"];
+    let rows: any[];
+    try { rows = await retry(() => yf.quote(batch, { fields }, MO)) as any[]; } catch { throw unavailable(`${batch.length} symbols`); }
+    for (const q of rows ?? []) {
+      const price = num(q?.regularMarketPrice), cap = num(q?.marketCap);
+      if (!q?.symbol || q.quoteType !== "EQUITY" || !price || !cap) continue;
+      const cur = majorCurrency(q.currency);
+      out.push({ symbol: q.symbol, name: q.longName || q.shortName || q.symbol, price: price / cur.factor, marketCap: cap, changePct: num(q.regularMarketChangePercent), currency: cur.code });
+    }
+  }
+  return out;
+}
+
 export function searchSymbols(q: string): Promise<SearchHit[]> {
   const query = q.trim().slice(0, 60);
   return cached("search:" + query.toLowerCase(), 6 * HOUR, async () => {
