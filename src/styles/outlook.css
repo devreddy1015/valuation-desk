@@ -1,0 +1,27 @@
+/* Analyst view and risk range. Prefixed ol- because global CSS stays loaded across routes. */
+.ol-lead { font-size: 15px; line-height: 1.55; max-width: 85ch; }
+.ol-scale { display: flex; flex-direction: column; gap: 8px; padding-block: 6px; }
+.ol-track { position: relative; height: 18px; border-radius: 9px; background: var(--bg-raise); border: 1px solid var(--line); }
+.ol-band { position: absolute; top: 2px; bottom: 2px; border-radius: 7px; }
+.ol-band-an { background: color-mix(in oklab, var(--s1) 35%, transparent); }
+.ol-band-80 { background: color-mix(in oklab, var(--s1) 25%, transparent); }
+.ol-band-50 { background: color-mix(in oklab, var(--s1) 55%, transparent); }
+.ol-mark { position: absolute; top: -5px; width: 4px; height: 26px; margin-left: -2px; border-radius: 2px; }
+.ol-m-price { background: var(--ink); }
+.ol-m-an { background: var(--s2); }
+.ol-m-value { background: var(--s3); }
+.ol-legend { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 12.5px; color: var(--ink-2); }
+.ol-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.ol-dot { display: inline-block; width: 10px; height: 10px; border-radius: 3px; position: static; }
+.ol-ratings { display: flex; flex-direction: column; gap: 8px; }
+.ol-stack { display: flex; gap: 2px; height: 22px; border-radius: 6px; overflow: hidden; }
+.ol-stack span { display: grid; place-items: center; min-width: 18px; font-size: 11.5px; font-weight: 600; color: #fff; font-variant-numeric: tabular-nums; }
+/* fixed shades, dark enough for white counts in both themes (4.5:1 or more) */
+.ol-sb { background: #0a5c2e; }
+.ol-b { background: #1f7a4d; }
+.ol-h { background: #5f6878; }
+.ol-s { background: #b0482f; }
+.ol-ss { background: #9b1c1c; }
+@media print {
+  .ol-track, .ol-band, .ol-mark, .ol-dot, .ol-stack span { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}

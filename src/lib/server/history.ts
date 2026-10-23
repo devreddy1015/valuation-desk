@@ -14,6 +14,37 @@ const yf = new YahooFinance({ suppressNotices: ["yahooSurvey"] });
  */
 const localDate = (d: unknown, offsetSec: number) => new Date(+new Date(d as string) + offsetSec * 1000 + 6 * 36e5).toISOString().slice(0, 10);
 
+export interface WeeklySeries { symbol: string; currency: string; points: PricePoint[] }
+
+/**
+ * Five years of weekly closes adjusted for dividends and splits (so returns are total returns), in major
+ * currency units, cached 12 hours. Used for volatility, drawdowns and rolling returns.
+ */
+export function getWeeklyHistory(rawSymbol: string): Promise<WeeklySeries> {
+  const symbol = rawSymbol.trim().toUpperCase();
+  return cached("wk5:" + symbol, 12 * HOUR, async () => {
+    let r: any;
+    try {
+      r = await yf.chart(symbol, { period1: new Date(Date.now() - (5 * 365 + 10) * 864e5), interval: "1wk" }, yahooCall());
+    } catch (e) {
+      if (isNotFound(e)) throw new DataError(`Yahoo Finance has no price history for ${symbol}`, "not_found");
+      throw new DataError(`Price history for ${symbol} is unavailable right now`, "upstream");
+    }
+    const cur = majorCurrency(r?.meta?.currency);
+    const off = typeof r?.meta?.gmtoffset === "number" ? r.meta.gmtoffset : 0;
+    const byWeek = new Map<string, PricePoint>();
+    for (const q of r?.quotes ?? []) {
+      const v = typeof q?.adjclose === "number" && q.adjclose > 0 ? q.adjclose : typeof q?.close === "number" && q.close > 0 ? q.close : null;
+      if (v === null) continue;
+      const date = localDate(q.date, off);
+      byWeek.set(date, { date, close: v / cur.factor });
+    }
+    const points = [...byWeek.values()].sort((a, b) => a.date.localeCompare(b.date));
+    if (points.length < 30) throw new DataError(`Yahoo Finance has too little price history for ${symbol}`, "not_found");
+    return { symbol, currency: cur.code, points };
+  });
+}
+
 /** Ten years of month-end closes (split-adjusted, major currency units) and split or bonus events, cached 12 hours. */
 export function getPriceHistory(rawSymbol: string): Promise<PriceHistory> {
   const symbol = rawSymbol.trim().toUpperCase();

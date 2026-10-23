@@ -3,7 +3,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Num from "./Num";
 import Bands from "./Bands";
 import ExcelButton from "./ExcelButton";
+import AnalystPanel from "./AnalystPanel";
 import Health from "./Health";
+import RiskRange from "./RiskRange";
 import { ReturnsPanel, Story } from "./Insight";
 import ShareButton from "./ShareButton";
 import SharedBanner from "./SharedBanner";
@@ -126,6 +128,9 @@ export default function Desk({ data: raw, peers: autoPeers, now }: { data: Stock
       ? [{ label: "P/B comps", sub: "25th to 75th percentile", lo: R.implied.pb.q1, hi: R.implied.pb.q3, mid: R.implied.pb.med, midLabel: "Median" }]
       : [{ label: "EV/EBITDA comps", sub: "25th to 75th percentile", lo: R.implied.evE.q1, hi: R.implied.evE.q3, mid: R.implied.evE.med, midLabel: "Median" }]),
     { label: "P/E comps", sub: "25th to 75th percentile", lo: R.implied.pe.q1, hi: R.implied.pe.q3, mid: R.implied.pe.med, midLabel: "Median" },
+    ...(data.analyst && data.analyst.low !== null && data.analyst.high !== null
+      ? [{ label: "Analyst targets", sub: `${data.analyst.n ?? "all"} analysts, low to high`, lo: data.analyst.low, hi: data.analyst.high, ...(data.analyst.mean !== null ? { mid: data.analyst.mean, midLabel: "Average" } : {}), neutral: true }]
+      : []),
     { label: "52-week share price", sub: "trading range", lo: data.lo52, hi: data.hi52, neutral: true },
   ];
   const ffRows = showDcf ? ffAll : ffAll.filter((r) => !/^(DCF|Monte Carlo)/.test(r.label));
@@ -378,6 +383,10 @@ export default function Desk({ data: raw, peers: autoPeers, now }: { data: Stock
           </section>
 
           <Health data={data} report={health} />
+
+          <AnalystPanel a={data.analyst} price={inp.price} currency={cur} value={R.ok ? R.pt : null} valueLabel={calls ? "price target" : "value estimate"} />
+
+          <RiskRange data={data} price={inp.price} value={R.ok ? R.pt : null} valueLabel={calls ? "price target" : "value estimate"} analystMean={data.analyst?.mean ?? null} />
 
           {!showDcf && (
             <section className="card section" aria-labelledby="fin-h">

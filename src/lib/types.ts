@@ -69,6 +69,7 @@ export interface StockData {
   ttm: { revenue: number; ebitda: number; netIncome: number; eps: number };
   compsNetCash?: number; // net cash for EV-based comps, defaults to the bridge
   estimates: { growthThisYear: number | null; growthNextYear: number | null; note: string | null };
+  analyst?: AnalystView | null; // what analysts covering the stock expect; their opinion, not the model's
   beta: { value: number; r2: number; n: number; benchmark: string; window: string } | null;
   yahooBeta: number | null;
   riskFree: { rate: number; note: string; estimated: boolean };
@@ -77,6 +78,17 @@ export interface StockData {
   warnings: string[];
   asOf: string;
   source: string;
+}
+
+/** Analysts' price targets (per share, model currency) and ratings, as Yahoo collects them. */
+export interface AnalystView {
+  n: number | null; // analysts with a price target
+  mean: number | null;
+  median: number | null;
+  low: number | null;
+  high: number | null;
+  recommendationMean: number | null; // 1 = strong buy … 5 = strong sell
+  ratings: { period: string; strongBuy: number; buy: number; hold: number; sell: number; strongSell: number }[]; // "0m" this month, "-3m" three months ago
 }
 
 export interface PeerRow {

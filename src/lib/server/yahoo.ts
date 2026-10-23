@@ -210,7 +210,7 @@ export function getStockData(rawSymbol: string): Promise<StockData> {
     // would be valued as an ordinary company, and that result would be cached. Only Yahoo saying the
     // data does not exist counts as missing; anything else fails the request so the next view retries.
     const [summary, fts]: any[] = await Promise.all([
-      retry(() => yf.quoteSummary(symbol, { modules: ["assetProfile", "defaultKeyStatistics", "financialData", "summaryDetail", "earningsTrend"] }, MO)).catch((e) => {
+      retry(() => yf.quoteSummary(symbol, { modules: ["assetProfile", "defaultKeyStatistics", "financialData", "summaryDetail", "earningsTrend", "recommendationTrend"] }, MO)).catch((e) => {
         if (!isNotFound(e)) throw unavailable(symbol);
         warnings.push("Yahoo has no company profile for this symbol, so its sector, country, peers and analyst estimates are missing.");
         return {};
@@ -392,6 +392,18 @@ export function getStockData(rawSymbol: string): Promise<StockData> {
     const ageDays = (Date.now() - +new Date(bsDate)) / 864e5;
     if (ageDays > 550) warnings.push("The latest annual report on Yahoo is more than 18 months old.");
 
+    // Analyst targets come in the units of financialData.currentPrice (pence for London); if that price
+    // doesn't match the quote, the targets can't be trusted to be on the same basis, so they are dropped.
+    const fdPrice = num(fd.currentPrice);
+    const sameBasis = fdPrice === null || Math.abs(fdPrice / quote.regularMarketPrice - 1) < 0.05;
+    const tgt = (v: unknown) => (sameBasis && num(v) !== null && (v as number) > 0 ? (v as number) / cur.factor : null);
+    const ratings = ((summary?.recommendationTrend?.trend ?? []) as any[])
+      .map((t) => ({ period: String(t.period), strongBuy: num(t.strongBuy) ?? 0, buy: num(t.buy) ?? 0, hold: num(t.hold) ?? 0, sell: num(t.sell) ?? 0, strongSell: num(t.strongSell) ?? 0 }))
+      .filter((t) => t.strongBuy + t.buy + t.hold + t.sell + t.strongSell > 0);
+    const analyst = tgt(fd.targetMeanPrice) !== null || ratings.length
+      ? { n: num(fd.numberOfAnalystOpinions), mean: tgt(fd.targetMeanPrice), median: tgt(fd.targetMedianPrice), low: tgt(fd.targetLowPrice), high: tgt(fd.targetHighPrice), recommendationMean: num(fd.recommendationMean), ratings }
+      : null;
+
     const bench = BENCHMARK_BY_COUNTRY[country] ?? FALLBACK_BENCHMARK;
     const data: StockData = {
       symbol, name: quote.longName || quote.shortName || symbol, exchange: quote.fullExchangeName || quote.exchange || "",
@@ -406,6 +418,7 @@ export function getStockData(rawSymbol: string): Promise<StockData> {
       history,
       bridge: { date: bsDate, cash, borrowings: Math.max(0, totalDebt - leases), leases, nci, returned, returnedNote: notes.join("; ") },
       ttm: { revenue: ttmRevenue, ebitda: ttmEbitda, netIncome: ttmNet, eps: ttmNet / shares },
+      analyst,
       estimates: { growthThisYear: g0, growthNextYear: g1, note: g0 ? `Consensus revenue growth${nAnalysts ? ` (${nAnalysts} analysts)` : ""}: ${(g0 * 100).toFixed(1)}% this fiscal year${g1 !== null ? `, ${(g1 * 100).toFixed(1)}% next` : ""} (Yahoo Finance).` : null },
       beta: beta ? { ...beta, benchmark: bench.name, window: "2 years, weekly" } : null,
       yahooBeta: num(summary?.summaryDetail?.beta) ?? num(ks.beta),
