@@ -134,7 +134,8 @@ export function getTopIndia(n = 50): Promise<{ companies: RankedCompany[]; asOf:
   return cached("top-india", 15 * MIN, async () => {
     const members = await indexMembers("nifty200", "Nifty 200");
     const quotes = await quotesFor(members.map((m) => m.symbol));
-    if (quotes.length < 100) throw new DataError("Market values for the Nifty 200 did not load", "upstream");
+    // too many gaps would rank the wrong companies: fail (and so skip the cache) rather than show that
+    if (quotes.length < members.length * 0.95) throw new DataError(`Market values loaded for only ${quotes.length} of the Nifty 200`, "upstream");
     const industry = new Map(members.map((m) => [m.symbol, m.group ?? ""]));
     const companies = quotes
       .sort((a, b) => b.marketCap - a.marketCap)

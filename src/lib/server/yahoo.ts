@@ -46,22 +46,32 @@ export interface SearchHit { symbol: string; name: string; exchange: string; typ
 
 export interface QuoteLite { symbol: string; name: string; price: number; marketCap: number; changePct: number | null; currency: string }
 
-/** Price, market value and today's move for many symbols, 50 to a Yahoo call. Non-equities and symbols without a market cap are dropped. */
+/**
+ * Price, market value and today's move for many symbols: batches of 50 in parallel, then any symbol a
+ * batch left out (Yahoo sometimes drops a few, or their market cap) asked for again on its own.
+ * Non-equities and symbols with no market value are dropped.
+ */
 export async function quotesFor(symbols: string[]): Promise<QuoteLite[]> {
-  const out: QuoteLite[] = [];
-  for (let i = 0; i < symbols.length; i += 50) {
-    const batch = symbols.slice(i, i + 50);
-    const fields = ["symbol", "longName", "shortName", "regularMarketPrice", "marketCap", "regularMarketChangePercent", "currency", "quoteType"];
-    let rows: any[];
-    try { rows = await retry(() => yf.quote(batch, { fields }, MO)) as any[]; } catch { throw unavailable(`${batch.length} symbols`); }
-    for (const q of rows ?? []) {
-      const price = num(q?.regularMarketPrice), cap = num(q?.marketCap);
-      if (!q?.symbol || q.quoteType !== "EQUITY" || !price || !cap) continue;
-      const cur = majorCurrency(q.currency);
-      out.push({ symbol: q.symbol, name: q.longName || q.shortName || q.symbol, price: price / cur.factor, marketCap: cap, changePct: num(q.regularMarketChangePercent), currency: cur.code });
-    }
+  const fields = ["symbol", "longName", "shortName", "regularMarketPrice", "marketCap", "sharesOutstanding", "regularMarketChangePercent", "currency", "quoteType"];
+  const lite = (q: any): QuoteLite | null => {
+    const price = num(q?.regularMarketPrice);
+    if (!q?.symbol || (q.quoteType && q.quoteType !== "EQUITY") || !price) return null;
+    const cur = majorCurrency(q.currency);
+    const cap = num(q.marketCap) ?? (num(q.sharesOutstanding) ? (price / cur.factor) * q.sharesOutstanding : null);
+    return cap ? { symbol: q.symbol, name: q.longName || q.shortName || q.symbol, price: price / cur.factor, marketCap: cap, changePct: num(q.regularMarketChangePercent), currency: cur.code } : null;
+  };
+  const batches: string[][] = [];
+  for (let i = 0; i < symbols.length; i += 50) batches.push(symbols.slice(i, i + 50));
+  const got = new Map<string, QuoteLite>();
+  const results = await Promise.all(batches.map((b) => retry(() => yf.quote(b, { fields }, MO)).catch(() => null)));
+  if (results.every((r) => r === null)) throw unavailable(`${symbols.length} symbols`);
+  for (const rows of results) for (const q of (rows as any[] | null) ?? []) { const l = lite(q); if (l) got.set(l.symbol, l); }
+  const missing = symbols.filter((s) => !got.has(s));
+  for (let i = 0; i < missing.length; i += 4) {
+    const again = await Promise.all(missing.slice(i, i + 4).map((s) => retry(() => yf.quote(s, {}, MO)).catch(() => null)));
+    for (const q of again) { const l = lite(q); if (l) got.set(l.symbol, l); }
   }
-  return out;
+  return symbols.map((s) => got.get(s)).filter((x): x is QuoteLite => !!x);
 }
 
 export function searchSymbols(q: string): Promise<SearchHit[]> {
