@@ -62,3 +62,11 @@ export const cap1 = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 export function lakhCrore(v: number | null | undefined): string {
   return ok(v) ? `₹${(v / 1e12).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} lakh cr` : "–";
 }
+
+/** A company's market value the way its market quotes it: lakh crore rupees in India, $ trillion or billion in the US. */
+export function marketValue(v: number | null | undefined, currency: string): string {
+  if (!ok(v)) return "–";
+  if (currency === "INR") return lakhCrore(v);
+  const sym = currency === "USD" ? "$" : `${currency} `;
+  return v >= 1e12 ? `${sym}${(v / 1e12).toFixed(2)}T` : `${sym}${(v / 1e9).toFixed(0)}B`;
+}

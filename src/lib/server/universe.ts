@@ -12,13 +12,13 @@ export const FAMILIES: UniverseFamily[] = ["India · broad market", "India · se
 /** A registry entry as the picker shows it. */
 export interface UniverseListing extends UniverseInfo { family: UniverseFamily }
 
-interface Def { id: string; name: string; description: string; family: UniverseFamily; size: number | null; csv?: string; members?: UniverseMember[]; ranked?: boolean }
+interface Def { id: string; name: string; description: string; family: UniverseFamily; size: number | null; csv?: string; members?: UniverseMember[]; ranked?: TopMarket }
 
 const nse = (id: string, name: string, family: UniverseFamily, description: string, size: number | null = null): Def => ({ id, name, family, description, size, csv: id });
 
 // Sizes are given only where the index rules fix the count; sector indices vary.
 const NSE: Def[] = [
-  { id: "top50", name: "India's 50 most valuable", family: "India · broad market", size: 50, ranked: true, description: "The 50 largest Indian companies by today's market value, ranked live from the Nifty 200." },
+  { id: "top50", name: "India's 50 most valuable", family: "India · broad market", size: 50, ranked: "india", description: "The 50 largest Indian companies by today's market value, ranked live from the Nifty 200." },
   nse("nifty50", "Nifty 50", "India · broad market", "India's 50 largest, most traded companies on NSE.", 50),
   nse("niftynext50", "Nifty Next 50", "India · broad market", "The 50 companies ranked just after the Nifty 50: the next large caps.", 50),
   nse("nifty100", "Nifty 100", "India · broad market", "The Nifty 50 and Nifty Next 50 together.", 100),
@@ -60,8 +60,31 @@ const DOW: UniverseMember[] = ([
   ["SHW", "Sherwin-Williams"], ["TRV", "Travelers"], ["UNH", "UnitedHealth Group"], ["V", "Visa"], ["WMT", "Walmart"],
 ] as const).map(([symbol, name]) => ({ symbol, name }));
 
+// Candidates for the US ranking: about 115 of the largest companies headquartered in the US, one share
+// class each (GOOGL, BRK-B), with their sector. Yahoo has no free "largest companies" list, so the top 50
+// are ranked live from these; anything that grows into the top 50 from outside needs adding here.
+// US-listed companies domiciled abroad (Linde, Accenture, Medtronic, Eaton, Chubb) are left out. Checked 23 Oct 2026.
+const US_AS_OF = "23 Oct 2026";
+const US_CANDIDATES: [string, string][] = [
+  ...["AAPL", "MSFT", "NVDA", "AVGO", "ORCL", "CRM", "ADBE", "AMD", "CSCO", "IBM", "INTU", "QCOM", "TXN", "NOW", "AMAT", "MU", "LRCX", "KLAC", "ADI", "PANW", "CRWD", "PLTR", "ANET", "APP", "SNPS", "CDNS", "INTC", "DELL", "APH"].map((x): [string, string] => [x, "Technology"]),
+  ...["GOOGL", "META", "NFLX", "TMUS", "T", "VZ", "DIS", "CMCSA"].map((x): [string, string] => [x, "Communication Services"]),
+  ...["AMZN", "TSLA", "HD", "MCD", "LOW", "TJX", "BKNG", "SBUX", "NKE", "UBER"].map((x): [string, string] => [x, "Consumer Cyclical"]),
+  ...["WMT", "COST", "PG", "KO", "PEP", "PM", "MO", "MDLZ", "CL"].map((x): [string, string] => [x, "Consumer Defensive"]),
+  ...["BRK-B", "JPM", "V", "MA", "BAC", "WFC", "GS", "MS", "C", "AXP", "SCHW", "BLK", "SPGI", "PGR", "COF", "BX", "KKR", "ICE", "CME", "MMC", "HOOD"].map((x): [string, string] => [x, "Financial Services"]),
+  ...["LLY", "UNH", "JNJ", "ABBV", "MRK", "TMO", "ABT", "ISRG", "AMGN", "PFE", "DHR", "GILD", "BSX", "VRTX", "SYK", "BMY", "CVS", "ELV", "REGN"].map((x): [string, string] => [x, "Healthcare"]),
+  ...["GE", "GEV", "CAT", "RTX", "HON", "UNP", "BA", "DE", "LMT", "UPS", "ADP", "WM", "PH", "GD", "NOC"].map((x): [string, string] => [x, "Industrials"]),
+  ...["XOM", "CVX", "COP"].map((x): [string, string] => [x, "Energy"]),
+  ...["NEE", "SO", "DUK", "CEG"].map((x): [string, string] => [x, "Utilities"]),
+  ...["PLD", "AMT", "EQIX", "WELL"].map((x): [string, string] => [x, "Real Estate"]),
+  ["SHW", "Basic Materials"],
+];
+
 const DEFS: Def[] = [
   ...NSE,
+  {
+    id: "top50us", name: "US 50 most valuable", family: "United States", size: 50, ranked: "us",
+    description: `The 50 largest US companies by today's market value, ranked live from about ${US_CANDIDATES.length} of the biggest (list checked ${US_AS_OF}).`,
+  },
   {
     id: "dow30", name: "Dow Jones Industrial Average (30)", family: "United States", size: DOW.length, members: DOW,
     description: `The 30 US blue chips in the Dow, members as of ${DOW_AS_OF} (Alphabet replaced Verizon on 29 Jun 2026).`,
@@ -123,25 +146,31 @@ function indexMembers(csv: string, name: string): Promise<UniverseMember[]> {
   });
 }
 
-export interface RankedCompany { rank: number; symbol: string; name: string; industry: string; price: number; marketCap: number; changePct: number | null }
+export interface RankedCompany { rank: number; symbol: string; name: string; industry: string; price: number; marketCap: number; changePct: number | null; currency: string }
+export type TopMarket = "india" | "us";
 
 /**
- * India's most valuable listed companies, ranked by today's market value (price × shares). The
- * candidates are the Nifty 200, which holds every large company except very recent listings; the
- * ranking is refreshed every 15 minutes from one batch of Yahoo quotes.
+ * A market's most valuable listed companies, ranked by today's market value (price × shares), refreshed
+ * every 15 minutes from batches of Yahoo quotes. India's candidates are the Nifty 200, which holds every
+ * large company except very recent listings; the US candidates are the list above.
  */
-export function getTopIndia(n = 50): Promise<{ companies: RankedCompany[]; asOf: string; source: string }> {
-  return cached("top-india", 15 * MIN, async () => {
-    const members = await indexMembers("nifty200", "Nifty 200");
+export function getTopCompanies(market: TopMarket, n = 50): Promise<{ companies: RankedCompany[]; asOf: string; source: string }> {
+  return cached(`top-${market}`, 15 * MIN, async () => {
+    const members: UniverseMember[] = market === "india"
+      ? await indexMembers("nifty200", "Nifty 200")
+      : US_CANDIDATES.map(([symbol, group]) => ({ symbol, name: symbol, group }));
     const quotes = await quotesFor(members.map((m) => m.symbol));
     // too many gaps would rank the wrong companies: fail (and so skip the cache) rather than show that
-    if (quotes.length < members.length * 0.95) throw new DataError(`Market values loaded for only ${quotes.length} of the Nifty 200`, "upstream");
+    if (quotes.length < members.length * 0.95) throw new DataError(`Market values loaded for only ${quotes.length} of ${members.length} companies`, "upstream");
     const industry = new Map(members.map((m) => [m.symbol, m.group ?? ""]));
     const companies = quotes
       .sort((a, b) => b.marketCap - a.marketCap)
       .slice(0, 50)
-      .map((q, i) => ({ rank: i + 1, symbol: q.symbol, name: q.name, industry: industry.get(q.symbol) ?? "", price: q.price, marketCap: q.marketCap, changePct: q.changePct }));
-    return { companies, asOf: new Date().toISOString(), source: "Nifty 200 constituents (NSE) ranked by market value from Yahoo Finance quotes (delayed)" };
+      .map((q, i) => ({ rank: i + 1, symbol: q.symbol, name: q.name, industry: industry.get(q.symbol) ?? "", price: q.price, marketCap: q.marketCap, changePct: q.changePct, currency: q.currency }));
+    const source = market === "india"
+      ? "Nifty 200 constituents (NSE) ranked by market value from Yahoo Finance quotes (delayed)"
+      : `About ${US_CANDIDATES.length} of the largest US companies (list checked ${US_AS_OF}) ranked by market value from Yahoo Finance quotes (delayed)`;
+    return { companies, asOf: new Date().toISOString(), source };
   }).then((r) => ({ ...r, companies: r.companies.slice(0, n) }));
 }
 
@@ -153,7 +182,7 @@ export function getUniverse(id: string): Promise<Universe> {
     return Promise.resolve({ id, name: d.name, description: d.description, source: `S&P Dow Jones Indices announcements; list checked ${DOW_AS_OF}`, members: d.members });
   }
   if (d.ranked) {
-    return getTopIndia(50).then((t) => ({ id, name: d.name, description: d.description, source: t.source, members: t.companies.map((c) => ({ symbol: c.symbol, name: c.name, ...(c.industry ? { group: c.industry } : {}) })) }));
+    return getTopCompanies(d.ranked, 50).then((t) => ({ id, name: d.name, description: d.description, source: t.source, members: t.companies.map((c) => ({ symbol: c.symbol, name: c.name, ...(c.industry ? { group: c.industry } : {}) })) }));
   }
   return indexMembers(d.csv!, d.name).then((members) => ({
     id, name: d.name, description: d.description, source: `NSE index constituents (${indexCsvUrl(d.csv!)}), refreshed daily`, members: members.slice(0, 150),

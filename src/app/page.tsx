@@ -86,10 +86,20 @@ export default function Home() {
 
         <section className="card section" aria-labelledby="top10-h">
           <div className="section-head">
-            <h2 id="top10-h">India&apos;s most valuable companies</h2>
-            <p>The ten largest by today&apos;s market value. <Link className="accent" href="/india/top">See all 50</Link> or <Link className="accent" href="/scan?u=top50">scan them</Link> to find which look cheap.</p>
+            <h2 id="top10-h">The most valuable companies</h2>
+            <p>The ten largest in India and in the US by today&apos;s market value. Open any to value it, or scan all 50 to find which look cheap.</p>
           </div>
-          <Suspense fallback={<p className="muted" aria-busy="true">Loading today&apos;s market values…</p>}><TopCompanies n={10} compact /></Suspense>
+          <div className="two">
+            <div className="top-col">
+              <h3 className="label">India · <Link className="accent" href="/india/top">all 50</Link> · <Link className="accent" href="/scan?u=top50">scan</Link></h3>
+              <Suspense fallback={<p className="muted" aria-busy="true">Loading today&apos;s market values…</p>}><TopCompanies market="india" n={10} compact /></Suspense>
+            </div>
+            <div className="top-col">
+              <h3 className="label">United States · <Link className="accent" href="/us/top">all 50</Link> · <Link className="accent" href="/scan?u=top50us">scan</Link></h3>
+              <Suspense fallback={<p className="muted" aria-busy="true">Loading today&apos;s market values…</p>}><TopCompanies market="us" n={10} compact /></Suspense>
+            </div>
+          </div>
+          <p className="note">Ranked by market value (share price × shares) at delayed prices from Yahoo Finance, refreshed every 15 minutes.</p>
         </section>
 
         <section aria-labelledby="mk-h" style={{ display: "flex", flexDirection: "column", gap: 14 }}>

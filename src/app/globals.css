@@ -341,3 +341,5 @@ table.data tbody tr:hover td { background: color-mix(in oklab, var(--accent-wash
 .top-table td.left { white-space: normal; }
 .top-table .top-up { color: var(--good); }
 .top-table .top-down { color: var(--bad); }
+.top-col { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.top-col h3 { margin: 0; }

@@ -18,6 +18,7 @@ export default function TopIndiaPage() {
         <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
           <Link className="btn primary" href="/scan?u=top50">Scan all 50</Link>
           <Link className="btn" href="/india">Browse every NSE stock</Link>
+          <Link className="btn" href="/us/top">The US&apos;s 50 most valuable</Link>
         </div>
       </div>
       <section className="card section" aria-labelledby="top-h">
