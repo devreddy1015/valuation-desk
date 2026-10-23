@@ -45,9 +45,9 @@ export default function Health({ data, report }: { data: StockData; report?: Hea
         <div className="hl-lead">
           <p className="hl-summary">{r.summary}</p>
           <div className="minis">
-            <div className="mini"><span className="k">Piotroski F-score</span><span className="v num">{P ? `${P.score} / ${P.max}` : "–"}</span><span className="n">{P ? (P.max < 9 ? `${P.max} of 9 tests computable` : "nine tests of strength") : r.financial ? "partly used for lenders" : "not enough data"}</span></div>
-            <div className="mini"><span className="k">Altman Z&apos;&apos;</span><span className="v num">{A ? num(A.z, 2) : "–"}</span><span className="n">{A ? `${A.zone === "safe" ? "Safe" : A.zone === "grey" ? "Grey" : "Distress"} zone · safe above 2.60` : r.financial ? "not used for lenders" : "not enough data"}</span></div>
-            <div className="mini"><span className="k">Beneish M-score</span><span className="v num">{B ? num(B.m, 2).replace("-", "−") : "–"}</span><span className="n">{B ? (B.flag ? `Flag: above ${String(BENEISH_CUTOFF).replace("-", "−")}` : `No flag · cut-off ${String(BENEISH_CUTOFF).replace("-", "−")}`) : r.financial ? "not used for lenders" : "not enough data"}</span></div>
+            <div className="mini"><span className="k">Piotroski F-score</span><span className="v num">{P ? `${P.score} / ${P.max}` : "–"}</span><span className="n">{P ? (P.max < 9 ? `${P.max} of 9 tests computable` : "nine tests of strength") : r.financial ? "not used for financial firms" : "not enough data"}</span></div>
+            <div className="mini"><span className="k">Altman Z&apos;&apos;</span><span className="v num">{A ? num(A.z, 2) : "–"}</span><span className="n">{A ? `${A.zone === "safe" ? "Safe" : A.zone === "grey" ? "Grey" : "Distress"} zone · safe above 2.60` : r.financial ? "not used for financial firms" : "not enough data"}</span></div>
+            <div className="mini"><span className="k">Beneish M-score</span><span className="v num">{B ? num(B.m, 2).replace("-", "−") : "–"}</span><span className="n">{B ? (B.flag ? `Flag: above ${String(BENEISH_CUTOFF).replace("-", "−")}` : `No flag · cut-off ${String(BENEISH_CUTOFF).replace("-", "−")}`) : r.financial ? "not used for financial firms" : "not enough data"}</span></div>
           </div>
         </div>
       </div>
@@ -132,7 +132,7 @@ export default function Health({ data, report }: { data: StockData; report?: Hea
           <p><b>Altman Z&apos;&apos;</b> (Edward Altman, 1995, the version for non-manufacturers and emerging markets): combines working capital, retained earnings, operating profit and book equity relative to the balance sheet. Above 2.60 is the safe zone, below 1.10 the distress zone.</p>
           <p><b>Beneish M-score</b> (Messod Beneish, 1999): eight ratios that, in his study, separated companies later found to have manipulated earnings. Above −1.78 resembles that pattern. It is a prompt to read the notes to the accounts, not an accusation.</p>
           <p><b>Grade</b>: a 0 to 100 blend (Piotroski 40%, Altman 20%, Beneish 15%, the ratios 25%, re-weighted when a part is missing): A from 80, B from 65, C from 50, D from 35, E below.</p>
-          <p className="muted">All three screens were built on US companies and annual accounts from Yahoo Finance, which can be incomplete. Banks and insurers get lender-specific ratios instead of the Altman and Beneish screens.</p>
+          <p className="muted">All three screens were built on US companies and annual accounts from Yahoo Finance, which can be incomplete. Lenders, insurers and holding companies get financial-firm ratios instead of the Altman and Beneish screens.</p>
         </div>
       </details>
       {r.notes.length > 0 && <ul className="hl-notes">{r.notes.map((n) => <li key={n}>{n}</li>)}</ul>}

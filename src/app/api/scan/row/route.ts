@@ -9,7 +9,8 @@ export async function GET(req: Request) {
   if (!/^[A-Z0-9^.\-=&]{1,24}$/.test(symbol)) return Response.json({ error: "Not a valid ticker", code: "invalid" }, { status: 400 });
   try {
     const row = await getScanRow(symbol);
-    return Response.json({ row }, { headers: { "Cache-Control": "public, s-maxage=3600, stale-while-revalidate=86400" } });
+    // prices go stale quickly: a CDN copy is fresh for 15 minutes and may be served for 15 more while it refreshes
+    return Response.json({ row }, { headers: { "Cache-Control": "public, s-maxage=900, stale-while-revalidate=900" } });
   } catch (e) {
     if (e instanceof DataError) return Response.json({ error: e.message, code: e.code }, { status: STATUS[e.code] });
     return Response.json({ error: "Market data is unavailable right now", code: "upstream" }, { status: 502 });

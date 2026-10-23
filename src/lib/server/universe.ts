@@ -119,7 +119,7 @@ export function getUniverse(id: string): Promise<Universe> {
   }
   const url = indexCsvUrl(d.csv!);
   return cached("universe:" + id, DAY, async () => {
-    const res = await fetch(url, { headers: { "User-Agent": UA, Accept: "text/csv,*/*" }, cache: "no-store" }).catch(() => null);
+    const res = await fetch(url, { headers: { "User-Agent": UA, Accept: "text/csv,*/*" }, cache: "no-store", signal: AbortSignal.timeout(10_000) }).catch(() => null);
     if (!res?.ok) throw new DataError(`NSE's ${d.name} file did not load${res ? ` (status ${res.status})` : ""}`, "upstream");
     const members = parseIndexCsv(await res.text());
     if (members.length < 5) throw new DataError(`NSE's ${d.name} file looks incomplete`, "upstream");

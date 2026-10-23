@@ -35,6 +35,7 @@ export function getNseListings(): Promise<NseListing[]> {
     const res = await fetch(URL, {
       headers: { "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140 Safari/537.36", Accept: "text/csv,*/*" },
       cache: "no-store",
+      signal: AbortSignal.timeout(10_000),
     });
     if (!res.ok) throw new Error(`NSE list returned ${res.status}`);
     const list = parseEquityList(await res.text());

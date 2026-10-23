@@ -175,7 +175,7 @@ export default function Bands({ data, price }: { data: StockData; price: number 
   const head = band ? describe(band, kind, price, data.currency) : null;
   const st = band?.stats;
   const fixedNotes = [
-    `Each fiscal year's ${kind === "pe" ? "earnings" : "book value"} is used from two months after the year end, when annual results are usually out, so the line steps once a year while the price moves every month. Today's ${L} uses ${kind === "pe" ? "trailing twelve-month earnings" : "the latest book value"}, so it can differ from the last step.`,
+    `Each fiscal year's ${kind === "pe" ? "earnings are" : "book value is"} used from two months after the year end, when annual results are usually out, so the line steps once a year while the price moves every month. Today's ${L} uses ${kind === "pe" ? "trailing twelve-month earnings" : "the latest book value"}, so it can differ from the last step.`,
     "Yahoo Finance has only four to five years of annual statements, so the range covers a few years, not a full business cycle. A stock can stay cheap or dear for longer than that.",
     `Prices are adjusted for splits and bonus issues and share counts are adjusted to match; dividends are not added back. Loss years, negative book value and ${L} above ${BAND_MAX[kind]}x are gaps.`,
   ];

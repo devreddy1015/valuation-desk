@@ -66,8 +66,31 @@ export const DAMODARAN_OVERRIDES: Record<string, { erp: number; defaultSpread: n
   India: { erp: 6.92, defaultSpread: 1.75, note: "Damodaran, July 2026 update" },
 };
 
-/** Banks and insurers are not suited to a free-cash-flow-to-firm DCF. */
-export function isFinancialIndustry(sector?: string, industry?: string): boolean {
-  const s = `${sector ?? ""} ${industry ?? ""}`.toLowerCase();
-  return /bank|insurance|capital markets|credit services|mortgage|asset management|financial data|exchange|conglomerate/.test(s) && /financial/.test((sector ?? "").toLowerCase());
+/** Balance-sheet ratios from the latest annual statements, as fractions; null when Yahoo lacks the lines. */
+export interface BalanceMix { loansToAssets: number | null; interestToRevenue: number | null; revenueToAssets: number | null }
+
+/**
+ * Lenders, insurers and investment holding companies are not suited to a free-cash-flow-to-firm DCF:
+ * their debt is raw material and their value sits on the balance sheet. Yahoo's industry label alone is
+ * too broad ("Credit Services" holds both Bajaj Finance and Visa), so lending is checked on the
+ * statements: a loan book of 30% or more of assets, interest income of half of revenue or more, or
+ * revenue below 15% of assets. Fee businesses (payment networks, exchanges, data providers, fund
+ * managers, insurance brokers) stay on the DCF path.
+ */
+export function isFinancialFirm(sector: string | undefined, industry: string | undefined, m: BalanceMix): boolean {
+  if (!/financial/.test((sector ?? "").toLowerCase())) return false;
+  const i = (industry ?? "").toLowerCase();
+  if (/insurance brokers/.test(i)) return false;
+  if (/bank|insurance|mortgage|capital markets|conglomerate/.test(i)) return true;
+  const lends = (m.loansToAssets ?? 0) >= 0.3 || (m.interestToRevenue ?? 0) >= 0.5;
+  if (/credit services/.test(i)) return lends || (m.revenueToAssets !== null && m.revenueToAssets < 0.15);
+  if (/asset management|financial data|exchange/.test(i)) return lends || (m.revenueToAssets !== null && m.revenueToAssets < 0.1);
+  return lends;
+}
+
+export type FinancialFamily = "lenders" | "insurers" | "markets";
+/** Groups of financial firms that trade on comparable multiples: a life insurer is not priced like a bank. */
+export function financialFamily(industry: string | undefined): FinancialFamily {
+  const i = (industry ?? "").toLowerCase();
+  return /insurance/.test(i) ? "insurers" : /bank|credit|mortgage/.test(i) ? "lenders" : "markets";
 }

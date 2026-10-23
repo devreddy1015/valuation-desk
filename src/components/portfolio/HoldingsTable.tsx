@@ -11,6 +11,8 @@ const SORTERS: Record<SortKey, (p: PositionView) => number | string | null> = {
   gap: (p) => p.gap, er: (p) => p.expectedReturn, exp: (p) => p.expGap, health: (p) => p.healthScore,
 };
 
+const SORT_LABEL: Record<SortKey, string> = { name: "holding", qty: "quantity", value: "value", weight: "weight", pnl: "profit and loss", gap: "DCF gap", er: "expected return", exp: "expectations gap", health: "health" };
+
 const qtyText = (q: number, currency: string | null) => q.toLocaleString(currency === "INR" || currency === null ? "en-IN" : "en-US", { maximumFractionDigits: 4 });
 const signedMoney = (v: number | null, cur: string) => (v === null ? "–" : `${v > 0 ? "+" : v < 0 ? "−" : ""}${money(Math.abs(v), cur, 0)}`);
 const tone = (v: number | null) => (v === null || v === 0 ? undefined : v > 0 ? "pf-good" : "pf-bad");
@@ -25,6 +27,7 @@ export default function HoldingsTable({ x, states, calls, onSave, onRemove }: {
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: "value", dir: -1 });
   const [edit, setEdit] = useState<Edit | null>(null);
   const editBtns = useRef(new Map<string, HTMLButtonElement>());
+  const heading = useRef<HTMLHeadingElement>(null);
   const rows = useMemo(() => {
     const get = SORTERS[sort.key];
     return [...x.positions].sort((a, b) => {
@@ -63,13 +66,13 @@ export default function HoldingsTable({ x, states, calls, onSave, onRemove }: {
   return (
     <section className="card section" aria-labelledby="pf-ht-h">
       <div className="section-head">
-        <h2 id="pf-ht-h">Holdings</h2>
-        <p>Price and model value per share are in each stock&apos;s own currency; value and P&amp;L are in {b}. Select a column heading to sort.</p>
+        <h2 id="pf-ht-h" ref={heading} tabIndex={-1}>Holdings</h2>
+        <p>Price and DCF value per share are in each stock&apos;s own currency; value and P&amp;L are in {b}. Select a column heading to sort.</p>
       </div>
-      {calls && <p className="note">Model calls compare the DCF value with the price using the desk&apos;s default thresholds (BUY above {pct(CALL_BUY, 0, true)}, SELL below {pct(CALL_SELL, 0)}), for learning. In India, giving buy or sell recommendations to clients can require SEBI Research Analyst registration.</p>}
+      {calls && <p className="note">Model calls here compare the DCF value alone with the price, using the desk&apos;s default thresholds (BUY above {pct(CALL_BUY, 0, true)}, SELL below {pct(CALL_SELL, 0)}), for learning. In India, giving buy or sell recommendations to clients can require SEBI Research Analyst registration.</p>}
       <div className="scroll">
         <table className="data pf-table">
-          <caption className="sr-only">Your holdings, sorted by {sort.key}</caption>
+          <caption className="sr-only">Your holdings, sorted by {SORT_LABEL[sort.key]}, {sort.dir === 1 ? "ascending" : "descending"}</caption>
           <thead>
             <tr>
               {head("name", "Holding", true)}
@@ -79,8 +82,8 @@ export default function HoldingsTable({ x, states, calls, onSave, onRemove }: {
               {head("value", `Value (${b})`)}
               {head("weight", "Weight")}
               {head("pnl", "P&L")}
-              {head(null, "Model value", false, "DCF value per share on default inputs")}
-              {head("gap", "Gap", false, "Model value / price − 1")}
+              {head(null, "DCF value", false, "DCF value per share on default inputs")}
+              {head("gap", "DCF gap", false, "DCF value / price − 1")}
               {head("er", "Exp. return", false, "Yearly return at today's price if the base case comes true")}
               {head("exp", "Exp. gap", false, "Implied growth minus reported growth, percentage points")}
               {head("health", "Health")}
@@ -112,12 +115,12 @@ export default function HoldingsTable({ x, states, calls, onSave, onRemove }: {
                   <td>{money(p.value, b, 0)}</td>
                   <td>{pct(p.weight, 1)}</td>
                   <td className={tone(p.pnl)}>{signedMoney(p.pnl, b)}{p.pnlPct !== null && <span className="pf-pct">{pct(p.pnlPct, 1, true)}</span>}</td>
-                  <td>{p.financial ? <span className="muted small">Lender: not used</span> : p.modelValue === null ? "–" : money(p.modelValue, cur)}</td>
+                  <td>{p.financial ? <span className="muted small">Financial firm: not used</span> : p.modelValue === null ? "–" : <>{money(p.modelValue, cur)}{p.extreme && <span className="pf-err">Check first: far from the price</span>}</>}</td>
                   <td>{pct(p.gap, 0, true)}</td>
                   <td>{pct(p.expectedReturn, 1)}</td>
                   <td>{p.expGap === null ? "–" : `${p.expGap > 0 ? "+" : p.expGap < 0 ? "−" : ""}${num(Math.abs(p.expGap), 1)}`}</td>
                   <td>{p.grade === "–" && p.healthScore === null ? "–" : <><span className={`pf-grade g-${p.grade}`}>{p.grade}</span>{p.healthScore !== null && <span className="muted small"> {Math.round(p.healthScore)}</span>}</>}</td>
-                  {calls && <td className="mono">{modelCall(p.gap)}</td>}
+                  {calls && <td className="mono">{modelCall(p.gap, p.extreme)}</td>}
                   <td>
                     {editing ? (
                       <span className="pf-rowbtns">
@@ -128,7 +131,7 @@ export default function HoldingsTable({ x, states, calls, onSave, onRemove }: {
                       <span className="pf-rowbtns">
                         <button type="button" className="btn small ghost" ref={(el) => { if (el) editBtns.current.set(p.symbol, el); else editBtns.current.delete(p.symbol); }}
                           onClick={() => setEdit({ symbol: p.symbol, qty: String(p.qty), cost: p.avgCost === null ? "" : String(Math.round(p.avgCost * 1e4) / 1e4), error: "" })} aria-label={`Edit ${p.symbol}`}>Edit</button>
-                        <button type="button" className="btn small ghost" onClick={() => onRemove(p.symbol)} aria-label={`Remove ${p.symbol}`}>Remove</button>
+                        <button type="button" className="btn small ghost" onClick={() => { onRemove(p.symbol); requestAnimationFrame(() => heading.current?.focus()); }} aria-label={`Remove ${p.symbol}`}>Remove</button>
                       </span>
                     )}
                   </td>

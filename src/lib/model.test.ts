@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { compute, monteCarlo, percentile, roundTarget, starterDrivers } from "./model";
+import { compute, histAverages, impliedRoot, monteCarlo, percentile, roundTarget, starterDrivers } from "./model";
 import type { PeerRow, StockData, UserInputs } from "./types";
 
 // Infosys, as verified in the Excel workbook and the earlier Claude page (Rs crore, shares in crore).
@@ -101,5 +101,32 @@ describe("edge cases", () => {
   });
   it("percentile matches Excel PERCENTILE.INC", () => {
     expect(percentile([1, 2, 3, 4], 0.25)).toBeCloseTo(1.75, 12);
+  });
+});
+
+describe("reverse DCF root choice", () => {
+  // value rises with growth up to a peak, then falls: two prices-equal points, like a large working-capital driver
+  const hump = (x: number) => 100 - (x - 5) * (x - 5) - 60; // zero at x = -1.32 and x = 11.32, peak at 5
+  it("takes the crossing on the same side of the curve as the user's own case", () => {
+    expect(impliedRoot(hump, 3, -60, 100)).toBeCloseTo(5 - Math.sqrt(40), 6); // value rising at 3: the lower root
+    expect(impliedRoot(hump, 9, -60, 100)).toBeCloseTo(5 + Math.sqrt(40), 6); // value falling at 9: the upper root
+  });
+  it("ignores a far 'shrink to riches' root on the wrong branch", () => {
+    // falling from -60 to -40, then rising: the -40 root is not on the rising branch the case sits on
+    const f = (x: number) => (x < -40 ? -(x + 40) * 2 : (x + 40) * 0.5) - 25; // crossings near -52.5 and +10
+    expect(impliedRoot(f, 6, -60, 100)).toBeCloseTo(10, 6);
+  });
+  it("is NaN when no crossing exists", () => {
+    expect(Number.isNaN(impliedRoot((x) => x * x + 1, 0, -60, 100))).toBe(true);
+  });
+});
+
+describe("working capital from history", () => {
+  it("pools years of real growth and ignores near-flat years", () => {
+    const flat = [
+      { revenue: 1000, wcInc: 0 }, { revenue: 1100, wcInc: 20 }, { revenue: 1105, wcInc: 50 }, { revenue: 1215, wcInc: 22 },
+    ].map((x, i) => ({ ...infy.history[i], ...x }));
+    // the +0.5% year (50 on a change of 5) would be 1000% on its own; pooled over the other two: 42 / 210
+    expect(histAverages(flat).wc).toBeCloseTo(42 / 210, 10);
   });
 });

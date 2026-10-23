@@ -98,12 +98,24 @@ describe("story points", () => {
     expect(R.rating).toBe("BUY");
     expect(c.points.find((p) => p.key === "case")!.text).toMatch(/The model's call is BUY/);
   });
-  it("adds the health summary when given", () => {
-    const health = { score: 72, grade: "B", summary: "Profitable, cash-generative and lightly indebted" } as HealthReport;
+  it("adds the health verdict once, without repeating the grade", () => {
+    const health = {
+      score: 72, grade: "B", flags: ["Margins are shrinking."], strengths: ["a", "b", "c"],
+      summary: "Grade B (72/100): looks mostly healthy, with 3 strengths and 1 red flag (top concern: margins are shrinking).",
+      verdict: "looks mostly healthy, with 3 strengths and 1 red flag (top concern: margins are shrinking)",
+    } as HealthReport;
     const { s: h } = story(mk(), inputs(fairPrice), { health });
     const p = h.points.find((x) => x.key === "health")!;
     expect(p.tone).toBe("good");
-    expect(p.text).toBe("Business health grade B (72 out of 100): Profitable, cash-generative and lightly indebted.");
+    expect(p.text).toBe("Business health grade B (72 out of 100): looks mostly healthy, with 3 strengths and 1 red flag (top concern: margins are shrinking).");
+    // an older report without the verdict field still loses the duplicate prefix
+    const { s: h2 } = story(mk(), inputs(fairPrice), { health: { ...health, verdict: undefined } });
+    expect(h2.points.find((x) => x.key === "health")!.text).not.toMatch(/Grade B \(72\/100\)/);
+  });
+  it("a high grade with as many red flags as strengths is not tagged favourable", () => {
+    const health = { score: 68, grade: "B", flags: ["a", "b", "c"], strengths: ["d"], summary: "Grade B (68/100): shows a mixed picture.", verdict: "shows a mixed picture" } as HealthReport;
+    const { s: h } = story(mk(), inputs(fairPrice), { health });
+    expect(h.points.find((x) => x.key === "health")!.tone).toBe("neutral");
   });
   it("today's profits covering the price", () => {
     const { s: c } = story(mk(), inputs(40));
@@ -143,6 +155,19 @@ describe("banks and insurers", () => {
   });
   it("model's call for a bank uses peers only", () => {
     const { s: c } = story(bank, inp, { peers, calls: true });
-    expect(c.points[0].text).toMatch(/The model's call is BUY: a value estimate of .* \(peers only\)/);
+    expect(c.points[0].text).toMatch(/The model's call is BUY: a price target of .* \(peers only\)/);
   });
 });
+
+describe("loss-makers", () => {
+  it("never quotes a negative DCF as the value of the shares", () => {
+    const loss: Drivers = { ...base, margin: rep(-40) };
+    const { s: st, R } = story(mk(), inputs(100, { assume: { bear: loss, base: loss, bull: loss } }));
+    expect(R.live.vps).toBeLessThan(0);
+    const c = st.points.find((p) => p.key === "case")!;
+    expect(c.text).toMatch(/doesn't give a usable DCF value/);
+    expect(st.points.some((p) => /-\$|−\$|values the shares at -/.test(p.text))).toBe(false);
+    expect(st.points.find((p) => p.key === "range")).toBeUndefined();
+  });
+});
+

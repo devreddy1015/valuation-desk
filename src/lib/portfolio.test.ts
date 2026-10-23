@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  cleanHoldings, concentrationOf, detectDelimiter, exportCsv, fetchFx, fetchScanRow, isSample, mapPool, mergeHoldings, mergeLots, modelCall,
+  cleanHoldings, concentrationOf, detectDelimiter, exchangeFromCell, exportCsv, fetchFx, fetchScanRow, isSample, mapPool, mergeHoldings, mergeLots, modelCall,
   parseHoldings, parseNumber, SAMPLE_PORTFOLIO, splitDelimited, summarise, toYahooSymbol, weightedMean, xray, MAX_HOLDINGS, type Holding, type PositionInput,
 } from "./portfolio";
 import type { ScanRow } from "./scanTypes";
@@ -332,5 +332,47 @@ describe("mapPool", () => {
     const out = await mapPool([5, 1, 4, 2, 3, 6, 0], 3, async (n) => { live++; peak = Math.max(peak, live); await new Promise((r) => setTimeout(r, n)); live--; return n * 2; });
     expect(out).toEqual([10, 2, 8, 4, 6, 12, 0]);
     expect(peak).toBe(3);
+  });
+});
+
+describe("review regressions", () => {
+  it("never turns an unrecognised exchange label into a US listing", () => {
+    expect(exchangeFromCell("NSE_EQ", "NS")).toBe("NS");
+    expect(exchangeFromCell("N", "BO")).toBe("NS");
+    expect(exchangeFromCell("BSE EQ", "NS")).toBe("BO");
+    expect(exchangeFromCell("Bombay Stock Exchange", "NS")).toBe("BO");
+    expect(exchangeFromCell("NASDAQ", "NS")).toBe("");
+    const unknown = new Set<string>();
+    expect(exchangeFromCell("MCX-SX", "NS", unknown)).toBe("NS");
+    expect([...unknown]).toEqual(["MCX-SX"]);
+    const r = parseHoldings("Symbol,Exchange,Quantity\nIEX,NSE_EQ,200\nHAL,N,5\nINFY,BSE_EQ,3", "NS");
+    expect(r.lots.map((l) => l.symbol)).toEqual(["IEX.NS", "HAL.NS", "INFY.BO"]);
+  });
+  it("reads dot thousands in decimal-comma files", () => {
+    expect(parseNumber("45.000", true)).toBe(45000);
+    expect(parseNumber("1.200", true)).toBe(1200);
+    expect(parseNumber("125.000,50", true)).toBe(125000.5);
+    expect(parseNumber("1.200")).toBe(1.2); // a comma-free file keeps the dot as the decimal mark
+  });
+  it("reads a quantity followed by a BSE code", () => {
+    const r = parseHoldings("10 500325", "NS");
+    expect(r.lots).toEqual([{ symbol: "500325.BO", qty: 10 }]);
+  });
+  it("updates quantities from a fresh broker snapshot instead of doubling them", () => {
+    const held = [h("INFY.NS", 10, 1400), h("TCS.NS", 4)];
+    const add = mergeHoldings(held, [{ symbol: "INFY.NS", qty: 12, avgCost: 1450 }], "", "add");
+    expect(add.holdings.find((x) => x.symbol === "INFY.NS")!.qty).toBe(22);
+    const upd = mergeHoldings(held, [{ symbol: "INFY.NS", qty: 12, avgCost: 1450 }, { symbol: "ITC.NS", qty: 50 }], "", "update");
+    expect(upd.holdings.map((x) => [x.symbol, x.qty, x.avgCost])).toEqual([["INFY.NS", 12, 1450], ["TCS.NS", 4, undefined], ["ITC.NS", 50, undefined]]);
+    expect(upd.combined).toEqual(["INFY.NS"]);
+  });
+  it("leaves a DCF value far from the price out of the averages and the calls", () => {
+    const rows = [row({ symbol: "A.NS", price: 100, dcfValue: 800 }), row({ symbol: "B.NS", price: 100, dcfValue: 100 })];
+    const x = xray(rows.map((r) => ({ holding: h(r.symbol, 10), row: r, fx: 1 })), "INR");
+    expect(x.positions.find((p) => p.symbol === "A.NS")!.extreme).toBe(true);
+    expect(x.gap.value).toBeCloseTo(0, 10); // only B counts
+    expect(x.gap.coverage).toBeCloseTo(0.5, 10);
+    expect(x.observations.some((o) => o.kind === "check")).toBe(true);
+    expect(modelCall(7, true)).toBe("CHECK");
   });
 });

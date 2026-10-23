@@ -2,8 +2,8 @@ import { compute, defaultInputs } from "@/lib/model";
 import { buildWorkbook } from "@/lib/excel";
 import { applyOverrides } from "@/lib/overrides";
 import { parseExportPayload } from "@/lib/client/share";
-import { DataError, getPeers, getStockData } from "@/lib/server/yahoo";
-import type { UserInputs } from "@/lib/types";
+import { DataError, getPeerRow, getPeers, getStockData } from "@/lib/server/yahoo";
+import type { PeerRow, UserInputs } from "@/lib/types";
 
 const MAX_BODY = 200 * 1024;
 
@@ -19,7 +19,10 @@ export async function POST(req: Request) {
     const raw = await getStockData(p.symbol);
     const data = applyOverrides(raw, p.overrides);
     const auto = await getPeers(raw.symbol, raw.industry, raw.sector).catch(() => []);
-    const peers = [...auto, ...p.extraPeers.filter((x) => !auto.some((a) => a.symbol === x.symbol))];
+    // only the symbols of added peers are trusted: their figures are fetched here, not taken from the request
+    const added = await Promise.all(p.extraPeers.filter((x) => !auto.some((a) => a.symbol === x.symbol)).slice(0, 12)
+      .map((x) => getPeerRow(x.symbol).then((r): PeerRow | null => { if (!r) return null; const o: Partial<typeof r> = { ...r }; delete o.sector; return o as PeerRow; }).catch(() => null)));
+    const peers = [...auto, ...added.filter((x): x is PeerRow => x !== null)];
     const inputs: UserInputs = { ...defaultInputs(raw, auto), ...p.inputs, price: p.inputs.price ?? raw.price };
     // the valuation date on screen, within a day of now, so year fractions match what the user saw
     const now = Date.now(), valDate = p.now !== undefined && Math.abs(p.now - now) < 864e5 ? p.now : now;

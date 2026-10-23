@@ -1,6 +1,7 @@
 // Portfolio X-ray: read holdings from a broker file or pasted text, then look through the whole
 // portfolio with one ScanRow per stock. Pure functions: the page does the fetching and storage.
 import { money, num, pct } from "./format";
+import { isExtreme } from "./scanMath";
 import type { HealthGrade, ScanRow } from "./scanTypes";
 
 export const PORTFOLIO_KEY = "vd:portfolio:v1";
@@ -33,6 +34,7 @@ export function parseNumber(raw: string | undefined | null, decimalComma = false
   let neg = false;
   if (/^\(.*\)$/.test(s)) { neg = true; s = s.slice(1, -1); }
   if (/^[-−]/.test(s)) { neg = !neg; s = s.slice(1); } else if (s.startsWith("+")) s = s.slice(1);
+  if (decimalComma && /^\d{1,3}(\.\d{3})+$/.test(s)) s = s.replace(/\./g, ""); // "1.200" is twelve hundred there
   const lc = s.lastIndexOf(","), ld = s.lastIndexOf(".");
   const comma = lc >= 0 && ld >= 0 ? lc > ld : decimalComma && lc >= 0;
   s = comma ? s.replace(/\./g, "").replace(",", ".") : s.replace(/,/g, "");
@@ -133,10 +135,20 @@ export function locateColumns(cells: string[]): Columns | null {
   return { symbol, qty, extraQty, cost, exchange, format: console ? "zerodha-console" : kite ? "zerodha-kite" : "csv" };
 }
 
-const exchangeFromCell = (v: string | undefined, fallback: Exchange): Exchange => {
+/**
+ * The exchange a broker's "Exchange" cell names: NSE, NSE_EQ, "N", "National..." are NSE; BSE, BSE_EQ,
+ * "B", "Bombay..." are BSE; a US venue means no suffix. Anything else keeps the user's default, so an
+ * unfamiliar label never turns an Indian symbol into a US ticker (IEX would become IDEX Corp).
+ */
+export function exchangeFromCell(v: string | undefined, fallback: Exchange, unknown?: Set<string>): Exchange {
   const x = (v ?? "").trim().toUpperCase();
-  return x === "NSE" || x === "NS" ? "NS" : x === "BSE" || x === "BO" ? "BO" : x ? "" : fallback;
-};
+  if (!x) return fallback;
+  if (/^NSE|^NS$|^N$|NATIONAL/.test(x)) return "NS";
+  if (/^BSE|^BO$|^B$|BOMBAY/.test(x)) return "BO";
+  if (/^(NASDAQ|NYSE|AMEX|ARCA|BATS|OTC|US|NMS|NGM|NCM|PCX)\b/.test(x)) return "";
+  unknown?.add(x);
+  return fallback;
+}
 
 /** Whether a semicolon or tab file writes decimals with a comma (1450,50). */
 function usesDecimalComma(rows: string[][]): boolean {
@@ -168,14 +180,16 @@ function parseTable(rows: { cells: string[]; line: number }[], at: number, cols:
   const decimalComma = delim !== "," && usesDecimalComma(body.map((r) => r.cells));
   const ex: Exchange = cols.format === "csv" ? exchange : "NS"; // Zerodha instruments are NSE symbols
   const lots: Lot[] = [];
+  const unknownExchanges = new Set<string>();
   for (const r of body) {
     if (r.cells.every((c) => !c)) continue;
     const text = r.cells.filter(Boolean).join(", ").slice(0, 80);
     const extra = sum(cols.extraQty.map((i) => parseNumber(r.cells[i], decimalComma) ?? 0));
-    const res = lotFrom(r.cells[cols.symbol] ?? "", r.cells[cols.qty], cols.cost >= 0 ? r.cells[cols.cost] : undefined, cols.exchange >= 0 ? exchangeFromCell(r.cells[cols.exchange], ex) : ex, decimalComma, notes, r.line, extra);
+    const res = lotFrom(r.cells[cols.symbol] ?? "", r.cells[cols.qty], cols.cost >= 0 ? r.cells[cols.cost] : undefined, cols.exchange >= 0 ? exchangeFromCell(r.cells[cols.exchange], ex, unknownExchanges) : ex, decimalComma, notes, r.line, extra);
     if (!res) continue;
     if ("lot" in res) lots.push(res.lot); else skipped.push({ line: r.line, text, reason: res.reason });
   }
+  if (unknownExchanges.size) notes.push(`The exchange column said ${[...unknownExchanges].slice(0, 4).map((x) => `"${x}"`).join(", ")}, which was not recognised, so those symbols were treated as ${ex === "NS" ? "NSE (.NS)" : ex === "BO" ? "BSE (.BO)" : "US (no suffix)"} listings, your default.`);
   if (cols.format === "zerodha-console" && cols.extraQty.length) notes.push("Zerodha Console lists pledged and discrepant shares apart from available ones; they are still yours, so each holding adds them up.");
   if (cols.cost < 0) notes.push("No average-cost column was found, so profit and loss will show only after you add costs.");
   return lots;
@@ -194,7 +208,8 @@ function parseTextLine(raw: string, line: number, exchange: Exchange, notes: str
   // filler words between the values ("INFY x 10 @ 1450"); the first token is always the symbol (X is a ticker)
   parts = parts.map((p) => p.trim().replace(/,$/, "")).filter((p, i) => p && !(i > 0 && /^(@|x|×|at|qty|shares?)$/i.test(p)));
   if (parts.length && /^(symbol|ticker|stock|instrument|scrip)$/i.test(parts[0])) return { reason: "Header line" };
-  if (parts.length >= 2 && parseNumber(parts[0]) !== null && parseNumber(parts[1]) === null) [parts[0], parts[1]] = [parts[1], parts[0]]; // "10 INFY"
+  // "10 INFY", and "10 500325" (a quantity, then a six-digit BSE code)
+  if (parts.length >= 2 && parseNumber(parts[0]) !== null && (parseNumber(parts[1]) === null || (/^[589]\d{5}$/.test(parts[1]) && !/^[589]\d{5}$/.test(parts[0])))) [parts[0], parts[1]] = [parts[1], parts[0]];
   if (parts.length < 2) return { reason: "Expected a symbol and a quantity, like INFY 10" };
   if (parts.length > 3) return { reason: "More than three values: write SYMBOL QUANTITY COST, with no commas inside numbers" };
   return lotFrom(parts[0], parts[1], parts[2], exchange, false, notes, line);
@@ -256,16 +271,24 @@ export const FORMAT_LABEL: Record<ImportFormat, string> = {
   text: "lines of text",
 };
 
+export type MergeMode = "add" | "update" | "replace";
+
 /**
- * Add lots to stored holdings (or replace them), merging with holdings of the same symbol the same
- * way mergeLots does. Returns the holdings to store and the symbols that did not fit under the cap.
+ * Put imported lots into the stored holdings. "add" adds quantities to holdings of the same symbol
+ * (re-weighting the cost, as mergeLots does); "update" sets them to the file's quantity and cost, which
+ * is what a fresh broker snapshot means, and keeps holdings the file doesn't mention; "replace" starts
+ * over. Returns the holdings to store, the symbols over the cap, and the symbols already held.
  */
-export function mergeHoldings(existing: Holding[], incoming: Lot[], now: string, mode: "add" | "replace" = "add"): { holdings: Holding[]; dropped: string[]; combined: string[] } {
+export function mergeHoldings(existing: Holding[], incoming: Lot[], now: string, mode: MergeMode = "add"): { holdings: Holding[]; dropped: string[]; combined: string[] } {
   const out = mode === "replace" ? [] : existing.map((h) => ({ ...h }));
   const dropped: string[] = [], combined: string[] = [];
   for (const l of incoming) {
     const h = out.find((x) => x.symbol === l.symbol);
-    if (h) {
+    if (h && mode === "update") {
+      h.qty = l.qty;
+      if (fin(l.avgCost)) h.avgCost = l.avgCost;
+      combined.push(l.symbol);
+    } else if (h) {
       const qty = h.qty + l.qty;
       h.avgCost = fin(h.avgCost) && fin(l.avgCost) ? (h.qty * h.avgCost + l.qty * l.avgCost) / qty : undefined;
       if (h.avgCost === undefined) delete h.avgCost;
@@ -417,13 +440,14 @@ export interface PositionView {
   grade: HealthGrade;
   flags: string[];
   financial: boolean;
+  extreme: boolean; // DCF value above 3x or below a third of the price: shown, but left out of the averages and calls
   sector: string;
   country: string;
 }
 
 export interface Weighted { value: number | null; coverage: number; n: number } // coverage: fraction of valued total
 export interface MixRow { key: string; value: number; weight: number; count: number }
-export type ObservationKind = "position" | "sector" | "health" | "expectations" | "cost";
+export type ObservationKind = "position" | "sector" | "health" | "expectations" | "cost" | "check";
 export interface Observation { kind: ObservationKind; key: string; symbol?: string; title: string; detail: string; weight: number }
 
 export interface Xray {
@@ -492,7 +516,7 @@ function view(p: PositionInput): PositionView {
     expectedReturn: dcfBased && fin(r.expectedReturn) ? r.expectedReturn : null, wacc: dcfBased && fin(r.wacc) ? r.wacc : null,
     impliedGrowth: dcfBased ? ig : null, histGrowth: hg, expGap: dcfBased && ig !== null && hg !== null ? ig - hg : null,
     healthScore: r && fin(r.health?.score) ? r.health.score : null, grade: r?.health?.grade ?? "–", flags: r?.health?.flags ?? [],
-    financial: !!r?.financial, sector: r?.sector ?? "", country: r?.country ?? "",
+    financial: !!r?.financial, extreme: price !== null && isExtreme(dcf, price), sector: r?.sector ?? "", country: r?.country ?? "",
   };
 }
 
@@ -510,10 +534,11 @@ export function xray(inputs: PositionInput[], base: string): Xray {
   const x: Xray = {
     base, positions, count: positions.length, valued: valued.length, total,
     cost: { total: costTotal, value: costValue, pnl: withCost.length ? costValue - costTotal : null, pnlPct: costTotal > 0 ? costValue / costTotal - 1 : null, n: withCost.length, coverage: total > 0 ? costValue / total : 0 },
-    gap: weightedMean(valued.map((p) => ({ w: wOf(p), v: p.gap }))),
-    expectedReturn: weightedMean(valued.map((p) => ({ w: wOf(p), v: p.expectedReturn }))),
-    wacc: weightedMean(valued.map((p) => ({ w: wOf(p), v: p.wacc }))),
-    expGap: weightedMean(valued.map((p) => ({ w: wOf(p), v: p.expGap }))),
+    // values the scanner would mark "check first" stay out of the averages (coverage says what is left)
+    gap: weightedMean(valued.map((p) => ({ w: wOf(p), v: p.extreme ? null : p.gap }))),
+    expectedReturn: weightedMean(valued.map((p) => ({ w: wOf(p), v: p.extreme ? null : p.expectedReturn }))),
+    wacc: weightedMean(valued.map((p) => ({ w: wOf(p), v: p.extreme ? null : p.wacc }))),
+    expGap: weightedMean(valued.map((p) => ({ w: wOf(p), v: p.extreme ? null : p.expGap }))),
     health: weightedMean(valued.map((p) => ({ w: wOf(p), v: p.healthScore }))),
     weakHealth: sum(valued.filter((p) => p.grade === "D" || p.grade === "E").map(wOf)),
     concentration: { top: byWeight[0] ?? null, top5: valued.length ? sum(byWeight.slice(0, 5).map(wOf)) : null, ...conc },
@@ -546,11 +571,18 @@ function observe(x: Xray, byWeight: PositionView[]): Observation[] {
     if (p.grade === "D" || p.grade === "E") out.push({
       kind: "health", key: `hl:${p.symbol}`, symbol: p.link, weight: w,
       title: `${p.name}: business-health grade ${p.grade}${fin(p.healthScore) ? ` (${Math.round(p.healthScore)}/100)` : ""}`,
-      detail: (p.flags.length ? `The health check flagged: ${p.flags.slice(0, 2).join("; ")}. ` : "") + "A low grade means the reported numbers show weak profitability, a stretched balance sheet or accounts worth reading closely.",
+      detail: (p.flags.length ? `The health check flagged: ${p.flags.slice(0, 2).map((f) => f.replace(/[.\s]+$/, "")).join("; ")}. ` : "") + "A low grade means the reported numbers show weak profitability, a stretched balance sheet or accounts worth reading closely.",
     });
   }
   for (const p of byWeight) {
-    if (fin(p.expGap) && p.expGap > LIMITS.expectations && fin(p.impliedGrowth) && fin(p.histGrowth)) out.push({
+    if (p.extreme && p.modelValue !== null && p.price !== null) out.push({
+      kind: "check", key: `ck:${p.symbol}`, symbol: p.link, weight: p.weight ?? 0,
+      title: `Check the data for ${p.name}`,
+      detail: `Its DCF value on default inputs (${money(p.modelValue, p.currency ?? x.base)}) is ${p.modelValue > p.price ? `${num(p.modelValue / p.price, 1)} times` : `${pct(p.modelValue / p.price, 0)} of`} the price. A gap that large usually means odd data or default inputs that don't fit the company, so it is left out of the portfolio's averages.`,
+    });
+  }
+  for (const p of byWeight) {
+    if (!p.extreme && fin(p.expGap) && p.expGap > LIMITS.expectations && fin(p.impliedGrowth) && fin(p.histGrowth)) out.push({
       kind: "expectations", key: `ex:${p.symbol}`, symbol: p.link, weight: p.weight ?? 0,
       title: `${p.name} is priced for more growth than it has delivered`,
       detail: `To be worth today's price on the model's other default assumptions, revenue would need to grow about ${num(p.impliedGrowth, 1)}% a year for five years. Over its reported years it grew ${num(p.histGrowth, 1)}% a year, ${num(p.expGap, 1)} points less.`,
@@ -569,8 +601,8 @@ function observe(x: Xray, byWeight: PositionView[]): Observation[] {
 }
 
 /** Modelled call from the DCF gap with the desk's default thresholds; shown only when calls are on. */
-export function modelCall(gap: number | null): "BUY" | "HOLD" | "SELL" | "–" {
-  return !fin(gap) ? "–" : gap > CALL_BUY ? "BUY" : gap < CALL_SELL ? "SELL" : "HOLD";
+export function modelCall(gap: number | null, extreme = false): "BUY" | "HOLD" | "SELL" | "CHECK" | "–" {
+  return extreme ? "CHECK" : !fin(gap) ? "–" : gap > CALL_BUY ? "BUY" : gap < CALL_SELL ? "SELL" : "HOLD";
 }
 
 /** A short plain-English reading of the X-ray, for beginners and for clients. */
@@ -583,7 +615,7 @@ export function summarise(x: Xray): string[] {
   if (x.cost.pnl !== null) out.push(`Against what you paid for the ${x.cost.n} holding${x.cost.n > 1 ? "s" : ""} with a cost, that is ${x.cost.pnl >= 0 ? "a gain" : "a loss"} of ${money(Math.abs(x.cost.pnl), cur, 0)} (${pct(x.cost.pnlPct, 1, true)}).`);
   const c = x.concentration;
   if (c.top && fin(c.effectiveN)) out.push(`The largest holding, ${c.top.name}, is ${pct(c.top.weight, 0)} of the total${x.valued > 5 ? ` and the top five are ${pct(c.top5, 0)}` : ""}; for spreading risk the portfolio behaves like ${num(c.effectiveN, 1)} equal-sized holdings.`);
-  if (fin(x.gap.value)) out.push(`On the model's default assumptions, the holdings it can value with a DCF (${pct(x.gap.coverage, 0)} of the total) are worth ${pct(Math.abs(x.gap.value), 0)} ${x.gap.value >= 0 ? "more" : "less"} than their market price.`);
+  if (fin(x.gap.value)) out.push(`On the model's default assumptions, the holdings it can value with a DCF (${pct(x.gap.coverage, 0)} of the total) are worth ${Math.abs(x.gap.value) < 0.005 ? "about the same as" : `${pct(Math.abs(x.gap.value), 0)} ${x.gap.value >= 0 ? "more" : "less"} than`} their market price.`);
   if (fin(x.expectedReturn.value)) out.push(`If the model's base case comes true, buying them at today's prices would earn about ${pct(x.expectedReturn.value, 1)} a year${fin(x.wacc.value) ? `, against the ${pct(x.wacc.value, 1)} a year their risk calls for` : ""}.`);
   if (fin(x.expGap.value)) out.push(`Today's prices assume revenue growth ${num(Math.abs(x.expGap.value), 1)} points a year ${x.expGap.value >= 0 ? "faster" : "slower"} than these companies have delivered.`);
   if (fin(x.health.value)) out.push(`The value-weighted business-health score is ${Math.round(x.health.value)} out of 100${x.weakHealth > 0 ? `, with ${pct(x.weakHealth, 0)} of the value in companies graded D or E` : ""}.`);

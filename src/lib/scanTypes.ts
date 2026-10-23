@@ -12,7 +12,7 @@ export interface ScanRow {
   currency: string; // model currency (major unit)
   price: number;
   marketCap: number;
-  financial: boolean; // bank or insurer: DCF not used
+  financial: boolean; // lender, insurer or investment holding company: DCF not used
   // own valuation, default inputs, base case
   dcfValue: number | null; // DCF value per share; null when not meaningful or a financial firm
   wacc: number | null; // fraction

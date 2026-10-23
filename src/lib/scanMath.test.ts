@@ -177,3 +177,34 @@ describe("typed tickers", () => {
     expect(r.truncated).toBe(true);
   });
 });
+
+describe("review regressions", () => {
+  it("never values a financial firm on a different kind of financial firm", () => {
+    const rows = [
+      row("LIFE1", { financial: true, sector: "Financial Services", industry: "Insurance - Life", pe: 60, pb: 8 }),
+      row("LIFE2", { financial: true, sector: "Financial Services", industry: "Insurance - Life", pe: 70, pb: 9 }),
+      row("BANK1", { financial: true, sector: "Financial Services", industry: "Banks - Regional", pe: 12, pb: 2 }),
+      row("BANK2", { financial: true, sector: "Financial Services", industry: "Banks - Regional", pe: 14, pb: 2.2 }),
+      row("BANK3", { financial: true, sector: "Financial Services", industry: "Banks - Regional", pe: 13, pb: 2.1 }),
+      row("NBFC", { financial: true, sector: "Financial Services", industry: "Credit Services", pe: 25, pb: 4 }),
+    ];
+    expect(peerGroup(rows, 0).basis).toBe("none"); // one other insurer: no peer value, never the banks
+    const bank = peerGroup(rows, 2);
+    expect(bank.basis).toBe("family"); // two other banks are too few; banks and NBFCs are both lenders
+    expect(bank.peers.map((p) => p.symbol).sort()).toEqual(["BANK2", "BANK3", "NBFC"]);
+  });
+  it("gives no call to a value far from the price and marks it in the CSV", () => {
+    const rows = scoreRows([row("X", { dcfValue: 900 }), row("Y"), row("Z"), row("W")]); // (900 DCF + 100 peers) / 2 = 5x the price
+    const x = rows.find((r) => r.symbol === "X")!;
+    expect(x.extreme).toBe(true);
+    expect(callFor(x.valueGap, x.extreme)).toBeNull();
+    const csv = toCsv(rows, { calls: true });
+    expect(csv.split("\r\n")[0]).toMatch(/Check first/);
+    expect(csv.split("\r\n").find((l) => l.startsWith("X,"))).toMatch(/,yes,.*CHECK/);
+  });
+  it("defuses spreadsheet formulas in text cells", () => {
+    const csv = toCsv(scoreRows([row("Q", { name: '=HYPERLINK("http://x","y")' })]), { calls: false });
+    expect(csv).toMatch(/"'=HYPERLINK/);
+  });
+});
+

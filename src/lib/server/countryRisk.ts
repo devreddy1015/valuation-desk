@@ -29,7 +29,7 @@ export function parseCountryTable(html: string): Map<string, CountryRisk> {
 
 export function getCountryTable(): Promise<Map<string, CountryRisk>> {
   return cached("damodaran:ctryprem", 7 * DAY, async () => {
-    const res = await fetch(URL, { headers: { "User-Agent": "Mozilla/5.0 (valuation-desk)" }, cache: "no-store" });
+    const res = await fetch(URL, { headers: { "User-Agent": "Mozilla/5.0 (valuation-desk)" }, cache: "no-store", signal: AbortSignal.timeout(10_000) });
     if (!res.ok) throw new Error(`Damodaran table returned ${res.status}`);
     const buf = await res.arrayBuffer();
     const html = new TextDecoder("latin1").decode(buf);
@@ -44,10 +44,12 @@ const ALIASES: Record<string, string> = { "united states": "united states", usa:
 export async function erpFor(country: string): Promise<{ value: number; defaultSpread: number; note: string; estimated: boolean }> {
   const o = DAMODARAN_OVERRIDES[country];
   if (o) return { value: o.erp, defaultSpread: o.defaultSpread, note: o.note, estimated: false };
+  const k = country.trim().toLowerCase();
+  if (!k) return { value: MATURE_ERP.value, defaultSpread: 0, note: `${MATURE_ERP.note}; Yahoo gives no country for this company`, estimated: true };
   try {
     const t = await getCountryTable();
-    const k = country.toLowerCase();
-    const hit = t.get(ALIASES[k] ?? k) ?? [...t.values()].find((v) => v.country.toLowerCase().startsWith(k));
+    // exact name or alias first; a prefix match only for names long enough not to hit the wrong country
+    const hit = t.get(ALIASES[k] ?? k) ?? (k.length >= 4 ? [...t.values()].find((v) => v.country.toLowerCase().startsWith(k)) : undefined);
     if (hit) return { value: hit.erp, defaultSpread: hit.defaultSpread, note: `Damodaran country risk table (January 2026), ${hit.country}, rating ${hit.rating}`, estimated: false };
   } catch {
     /* fall through to the mature-market default */

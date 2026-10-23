@@ -115,8 +115,16 @@ describe("sharesOnTodayBasis", () => {
     expect(r.shares).toBe(14.22e9);
     expect(r.note).toBeNull();
   });
-  it("rejects a count far from today's (e.g. depositary receipts)", () => {
+  it("rescales a whole-number unit mismatch (ordinary shares against depositary receipts)", () => {
     const r = sharesOnTodayBasis(fy(2024, 1, 5e9), [], 1e9);
+    expect(r.shares).toBe(1e9);
+    expect(r.note).toMatch(/rescaled/);
+    // HDFC Bank's ADR is three shares: 15,393mn ordinary against 5,139mn ADS is 2.995x, just under 3
+    const h = sharesOnTodayBasis(fy(2026, 1, 15393e6), [], 5139e6);
+    expect(h.shares).toBeCloseTo(15393e6 / 3, 0);
+  });
+  it("falls back to today's count when the gap is large and not a whole number", () => {
+    const r = sharesOnTodayBasis(fy(2024, 1, 2.5e9), [], 1e9);
     expect(r.shares).toBe(1e9);
     expect(r.note).toMatch(/inconsistent/);
   });

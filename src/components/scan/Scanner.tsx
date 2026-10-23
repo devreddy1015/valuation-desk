@@ -90,6 +90,7 @@ export default function Scanner({ universes }: { universes: UniverseListing[] })
   const [sort, setSort] = useState<Sort>(VIEWS[0].sort);
   const [filters, setFilters] = useState<Filters>(NO_FILTERS);
   const ctrl = useRef<AbortController | null>(null);
+  const runBtn = useRef<HTMLButtonElement>(null), stopBtn = useRef<HTMLButtonElement>(null);
 
   // A link such as /scan?u=niftyit preselects a list (it never starts a scan by itself).
   useEffect(() => {
@@ -103,6 +104,12 @@ export default function Scanner({ universes }: { universes: UniverseListing[] })
   }, []);
 
   const busy = phase === "loading" || phase === "running";
+  // Run is disabled while a scan runs, which would drop keyboard focus to the page: hand it to Stop and back.
+  useEffect(() => {
+    const at = document.activeElement;
+    if (busy && (at === document.body || at === runBtn.current)) stopBtn.current?.focus();
+    if (!busy && (at === document.body || at === stopBtn.current)) runBtn.current?.focus();
+  }, [busy]);
   const families = useMemo(() => [...new Set(universes.map((u) => u.family))], [universes]);
   const selected = universes.find((u) => u.id === pref.u);
   const typed = useMemo(() => parseTickers(pref.custom, pref.bare), [pref.custom, pref.bare]);
@@ -206,8 +213,8 @@ export default function Scanner({ universes }: { universes: UniverseListing[] })
             </p>
           </div>
           <div className="scan-actions">
-            <button type="button" className="btn primary" onClick={run} disabled={busy || !canRun}>Run scan</button>
-            <button type="button" className="btn" onClick={stop} disabled={!busy}>Stop</button>
+            <button type="button" className="btn primary" ref={runBtn} onClick={run} disabled={busy || !canRun}>Run scan</button>
+            <button type="button" className="btn" ref={stopBtn} onClick={stop} disabled={!busy}>Stop</button>
           </div>
         </div>
 
@@ -284,7 +291,7 @@ export default function Scanner({ universes }: { universes: UniverseListing[] })
               {anyFinancial && (
                 <label className="check">
                   <input type="checkbox" checked={filters.hideFinancials} onChange={(e) => setFilters((f) => ({ ...f, hideFinancials: e.target.checked }))} />
-                  Hide banks and insurers
+                  Hide financial firms
                 </label>
               )}
               <span className="spacer" />
@@ -299,7 +306,7 @@ export default function Scanner({ universes }: { universes: UniverseListing[] })
               In India, giving buy or sell recommendations to clients can require SEBI Research Analyst registration.
             </p>
           )}
-          <p className="note">Model values use default inputs and peers from this list only. Open a stock for full peers, your own forecast and every check. Educational, not investment advice.</p>
+          <p className="note">Value estimates use default inputs and peers from this list only. Open a stock for full peers, your own forecast and every check. Educational, not investment advice.</p>
         </section>
       ) : phase === "idle" ? (
         <section className="card empty" aria-label="How to start">

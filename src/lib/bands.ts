@@ -33,7 +33,7 @@ export type BandData = Pick<StockData, "history" | "shares" | "ttm" | "bookValue
 export const BAND_MAX: Record<BandKind, number> = { pe: 300, pb: 100 };
 export const BAND_LABEL: Record<BandKind, string> = { pe: "P/E", pb: "P/B" };
 /** A share count more than this factor away from today's is treated as a unit mismatch (e.g. depositary receipts). */
-const SHARE_SANITY = 3;
+const SHARE_SANITY = 1.8;
 
 const fin = (x: number | null | undefined): x is number => typeof x === "number" && Number.isFinite(x);
 const monthIndex = (iso: string) => { const d = new Date(iso); return d.getUTCFullYear() * 12 + d.getUTCMonth(); };
@@ -53,7 +53,14 @@ export function sharesOnTodayBasis(y: FiscalYear, splits: SplitEvent[], current:
   const dist = (x: number) => Math.abs(Math.log(x / current));
   let shares = adj, note: string | null = null;
   if (factor !== 1 && dist(raw) < dist(adj)) { shares = raw; note = `${y.label}: Yahoo's share count already reflects the later split or bonus issue.`; }
-  if (dist(shares) > Math.log(SHARE_SANITY)) return { shares: current, note: `${y.label}: the reported share count looks inconsistent with today's, so today's count is used.` };
+  // A whole-number gap that no split explains is a unit mismatch, typically ordinary shares against
+  // depositary receipts (an HDFC Bank ADR is three shares): rescale by it.
+  const r = shares / current, big = r >= 1 ? r : 1 / r, k = Math.round(big);
+  if (k >= 2 && Math.abs(big / k - 1) <= 0.06) {
+    shares = r >= 1 ? shares / k : shares * k;
+    note = `${y.label}: Yahoo's share count is about ${k} times today's (likely ordinary shares against depositary receipts or an unrecorded split), so it is rescaled.`;
+  }
+  if (dist(shares) >= Math.log(SHARE_SANITY)) return { shares: current, note: `${y.label}: the reported share count looks inconsistent with today's, so today's count is used.` };
   return { shares, note };
 }
 

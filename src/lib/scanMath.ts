@@ -1,6 +1,7 @@
 // Cross-stock maths for the opportunity scanner, run in the browser on the rows fetched so far:
 // peer values from the other stocks in the scanned list, the blended model value, gaps, views,
 // filters, summary statistics and CSV export. Pure functions.
+import { financialFamily } from "./markets";
 import { median } from "./model";
 import type { HealthGrade, ScanRow } from "./scanTypes";
 
@@ -15,7 +16,7 @@ export const MIN_PEERS = 3;
 /** Same thresholds as the desk's default calls: upside above +15% is BUY, below -10% SELL. */
 export const BUY_ABOVE = 0.15, SELL_BELOW = -0.1;
 
-export type PeerBasis = "industry" | "sector" | "list" | "none";
+export type PeerBasis = "industry" | "family" | "sector" | "list" | "none";
 export type Method = "dcf+peers" | "dcf" | "peers" | "none";
 export type Call = "BUY" | "HOLD" | "SELL";
 
@@ -35,7 +36,7 @@ export interface Scored extends ScanRow {
 
 /** A model value this far from the price usually means odd data or default inputs that don't fit the company. */
 export const EXTREME_RATIO = 3;
-const isExtreme = (value: number | null, price: number) => value !== null && price > 0 && (value / price > EXTREME_RATIO || value / price < 1 / EXTREME_RATIO);
+export const isExtreme = (value: number | null | undefined, price: number) => fin(value) && price > 0 && (value / price > EXTREME_RATIO || value / price < 1 / EXTREME_RATIO);
 
 /** Multiples a row can lend to a peer median, with the desk's validity filters (model.ts). */
 export function usableMultiples(r: ScanRow): PeerMedians {
@@ -53,15 +54,22 @@ function lendsTo(o: ScanRow, financial: boolean): boolean {
 }
 
 /**
- * Leave-one-out peers for row i: the other rows of the same kind (banks and insurers only with each
- * other) in the same Yahoo industry when at least MIN_PEERS of them have usable multiples, else the
- * same sector, else the whole list, else none.
+ * Leave-one-out peers for row i: the other rows of the same kind (financial firms only with each
+ * other) in the same Yahoo industry when at least MIN_PEERS of them have usable multiples. Then, for
+ * a financial firm, the same family (lenders, insurers or market businesses) and otherwise none: banks,
+ * life insurers and exchanges trade on unrelated multiples. For other companies, the same sector,
+ * then the whole list.
  */
 export function peerGroup(rows: ScanRow[], i: number): { basis: PeerBasis; peers: ScanRow[] } {
   const r = rows[i];
   const others = rows.filter((o, j) => j !== i && o.symbol !== r.symbol && o.financial === r.financial && lendsTo(o, r.financial));
   const industry = r.industry ? others.filter((o) => o.industry === r.industry) : [];
   if (industry.length >= MIN_PEERS) return { basis: "industry", peers: industry };
+  if (r.financial) {
+    const fam = financialFamily(r.industry);
+    const family = others.filter((o) => financialFamily(o.industry) === fam);
+    return family.length >= MIN_PEERS ? { basis: "family", peers: family } : { basis: "none", peers: [] };
+  }
   const sector = r.sector ? others.filter((o) => o.sector === r.sector) : [];
   if (sector.length >= MIN_PEERS) return { basis: "sector", peers: sector };
   if (others.length >= MIN_PEERS) return { basis: "list", peers: others };
@@ -76,7 +84,7 @@ export function peerMedians(peers: ScanRow[]): PeerMedians {
 
 /**
  * Peer value per share, as on the desk: the average of the median EV/EBITDA price
- * ((median x EBITDA + net cash) / shares) and the median P/E price; banks and insurers use the
+ * ((median x EBITDA + net cash) / shares) and the median P/E price; financial firms use the
  * median P/E and P/B prices. A part counts only when its inputs are positive.
  */
 export function compsValueFor(r: ScanRow, m: PeerMedians): number | null {
@@ -123,8 +131,9 @@ export function scoreRows(rows: ScanRow[], groupOf?: (symbol: string) => string 
   });
 }
 
-export function callFor(gap: number | null): Call | null {
-  if (!fin(gap)) return null;
+/** The model's call for a row; none when its value is so far from the price that the inputs need checking first. */
+export function callFor(gap: number | null, extreme = false): Call | null {
+  if (!fin(gap) || extreme) return null;
   return gap > BUY_ABOVE ? "BUY" : gap < SELL_BELOW ? "SELL" : "HOLD";
 }
 
@@ -171,7 +180,7 @@ export function sortRows(rows: Scored[], s: Sort): Scored[] {
 
 export type ViewKey = "gap" | "return" | "expectations" | "health";
 export const VIEWS: { key: ViewKey; label: string; sort: Sort; hint: string }[] = [
-  { key: "gap", label: "Biggest value gap", sort: { key: "valueGap", dir: -1 }, hint: "Model value furthest above today's price first." },
+  { key: "gap", label: "Biggest value gap", sort: { key: "valueGap", dir: -1 }, hint: "Value estimate furthest above today's price first." },
   { key: "return", label: "Best expected return", sort: { key: "expectedReturn", dir: -1 }, hint: "Highest yearly return at today's price if the base case comes true." },
   { key: "expectations", label: "Lowest expectations", sort: { key: "expectationsGap", dir: 1 }, hint: "Prices that assume the least growth compared with the company's own record." },
   { key: "health", label: "Healthiest", sort: { key: "health", dir: -1 }, hint: "Best business-health grade first." },
@@ -237,7 +246,8 @@ export function parseTickers(text: string, bare: BareSuffix = "NS"): { symbols: 
 
 const cell = (v: string | number | null | undefined) => {
   if (v === null || v === undefined || (typeof v === "number" && !Number.isFinite(v))) return "";
-  const s = String(v);
+  // text that a spreadsheet would read as a formula is prefixed with an apostrophe
+  const s = typeof v === "string" && /^[=+\-@\t\r]/.test(v) ? "'" + v : String(v);
   return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 };
 const r2 = (x: number | null) => (fin(x) ? Math.round(x * 100) / 100 : null);
@@ -246,16 +256,16 @@ const p2 = (x: number | null) => (fin(x) ? Math.round(x * 1e4) / 100 : null); //
 /** The rows as CSV, one line per stock, percentages as numbers (12.34 = 12.34%). */
 export function toCsv(rows: Scored[], opts: { calls: boolean }): string {
   const head = [
-    "Symbol", "Company", "Group", "Sector", "Industry", "Currency", "Price", "DCF value", "Peer value", "Model value", "Method",
+    "Symbol", "Company", "Group", "Sector", "Industry", "Currency", "Price", "DCF value", "Peer value", "Value estimate", "Method",
     "Value gap (%)", "Expected return a year (%)", "WACC (%)", "Price implies growth (%/yr)", "Reported growth (%/yr)", "Expectations gap (points)",
-    "P/E", "EV/EBITDA", "P/B", "Peer basis", "Peers", "Bank or insurer", "Health grade", "Health score", "Health flags",
+    "P/E", "EV/EBITDA", "P/B", "Peer basis", "Peers", "Financial firm", "Check first (value over 3x or under 1/3 of price)", "Health grade", "Health score", "Health flags",
     ...(opts.calls ? ["Call (model output)"] : []), "As of",
   ];
   const lines = rows.map((r) => [
     r.symbol, r.name, r.group, r.sector, r.industry, r.currency, r2(r.price), r2(r.dcfValue), r2(r.compsValue), r2(r.modelValue), r.method,
     p2(r.valueGap), p2(r.expectedReturn), p2(r.wacc), r2(r.impliedGrowth), r2(r.histGrowth), r2(r.expectationsGap),
-    r2(r.pe), r2(r.evEbitda), r2(r.pb), r.peers.basis, r.peers.n, r.financial ? "yes" : "no", r.health.grade, r.health.score, r.health.flags.join("; "),
-    ...(opts.calls ? [callFor(r.valueGap)] : []), r.asOf,
+    r2(r.pe), r2(r.evEbitda), r2(r.pb), r.peers.basis, r.peers.n, r.financial ? "yes" : "no", r.extreme ? "yes" : "no", r.health.grade, r.health.score, r.health.flags.join("; "),
+    ...(opts.calls ? [r.extreme ? "CHECK" : callFor(r.valueGap)] : []), r.asOf,
   ].map(cell).join(","));
   return [head.map(cell).join(","), ...lines].join("\r\n") + "\r\n";
 }

@@ -83,7 +83,7 @@ export function returnsFor(inp: UserInputs, data: StockData, R: Valuation): Retu
   }
   const spread = irr !== null && fin(R.wacc) ? irr - R.wacc : null;
   if (irr !== null) notes.push(`If your ${inp.scenario} case and ${pct(R.g)} terminal growth come true, the whole business returns about ${pct(irr)} a year at today's price, against the ${pct(R.wacc)} the model requires (the WACC).`);
-  else if (irrStatus === "financial") notes.push("Expected return is not shown for banks and insurers: it rests on a free-cash-flow DCF, which does not suit a lender.");
+  else if (irrStatus === "financial") notes.push("Expected return is not shown for financial firms: it rests on a free-cash-flow DCF, which does not suit a lender, an insurer or a holding company.");
   else if (irrStatus === "below-range") notes.push(`Even at a required return just above terminal growth (${pct(lo)}), your ${inp.scenario} case is worth less than today's price, so the price asks for more than this forecast.`);
   else if (irrStatus === "above-range") notes.push(`Your ${inp.scenario} case would return more than ${pct(hi, 0)} a year at today's price; a result that high usually means the forecast or the data needs a second look.`);
   else notes.push("No expected return: the DCF does not give a usable value with these inputs.");
@@ -104,7 +104,7 @@ export function returnsFor(inp: UserInputs, data: StockData, R: Valuation): Retu
     if (epv >= price) notes.push(`Today's profits alone cover the price: ${last.label} operating profit after tax, held flat for ever, is worth ${money(epv, cur)} a share against a price of ${money(price, cur)}.`);
     else if (epv <= 0) notes.push(`${last.label} operating profit after tax, held flat for ever, does not cover the debt and other claims, so all of today's price rests on growth or a recovery.`);
     else notes.push(`About ${pct(growthShare, 0)} of today's price pays for growth: with no growth at all, ${last.label} operating profit after tax is worth ${money(epv, cur)} a share.`);
-  } else if (data.financial) notes.push("Earnings power value is not shown for banks and insurers, for the same reason as the expected return.");
+  } else if (data.financial) notes.push("Earnings power value is not shown for financial firms, for the same reason as the expected return.");
   else if (last && !(last.ebit > 0)) notes.push(`${last.label} had no operating profit, so there is no earnings power value: the whole price rests on a recovery or growth.`);
 
   const earningsYield = okPrice && fin(data.ttm.eps) ? data.ttm.eps / price : null;

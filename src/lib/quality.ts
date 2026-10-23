@@ -3,6 +3,7 @@
 // non-manufacturers and emerging markets, Beneish 1999 eight-variable M-score) plus plain ratios,
 // each judged good or bad. Pure and synchronous: the desk, the scanner and API routes all call it.
 import { big, bigUnit } from "./format";
+import { financialFamily } from "./markets";
 import type { HealthGrade } from "./scanTypes";
 import type { FiscalYear, StockData } from "./types";
 
@@ -52,6 +53,7 @@ export interface HealthReport {
   notes: string[]; // what could not be computed and why
   years?: string[]; // fiscal year labels used, oldest first
   financial?: boolean;
+  verdict?: string; // the summary without its "Grade X (n/100): " prefix, for sentences that state the grade themselves
 }
 
 /* ---------- small helpers ---------- */
@@ -122,7 +124,7 @@ const WHY: Record<string, string> = {
   turn: "More sales from the same assets means the business uses its capital better.",
 };
 const NA = "Not available in the data";
-const FIN_SKIP = "Not used for banks and insurers";
+const FIN_SKIP = "Not used for financial firms";
 
 interface Pio { score: number; max: number; tests: HealthTest[]; endBasis: string[] }
 
@@ -318,12 +320,18 @@ export function healthCheck(data: StockData): HealthReport {
   const L = h[n - 1], P = h[n - 2], F0 = h[0];
   const span = `${F0.label}–${L.label}`;
   const flags: Cand[] = [], strengths: Cand[] = [];
-  if (fin) notes.push("Banks and insurers: the Altman and Beneish screens, the current-ratio and gross-margin tests, and the debt and cash-conversion ratios are left out because loans and deposits make them misleading. Operating cash flow for a lender also swings with loans and deposits, so read the two cash tests loosely.");
+  const insurer = fin && financialFamily(data.industry) === "insurers";
+  if (fin) notes.push(insurer
+    ? "Insurers are graded on return on equity, book value growth, dilution and growth. The Piotroski, Altman and Beneish screens and the debt and cash-conversion ratios are left out, and return on assets and equity ÷ assets are shown without a bank's yardstick, because policyholder funds make them misleading."
+    : "Lenders and investment holding companies are graded on return on equity and assets, the capital cushion, book value growth, dilution and growth. The Piotroski, Altman and Beneish screens and the debt and cash-conversion ratios are left out: loan growth is an operating cash outflow and borrowing is raw material, so they would mislead.");
 
   /* Piotroski */
-  const pio = piotroskiAt(h, fin, cur);
+  // The F-score's cash-flow, leverage, liquidity and margin tests don't describe a lender or an insurer.
+  const pio = fin ? null : piotroskiAt(h, fin, cur);
   let piotroski: HealthReport["piotroski"] = null;
-  if (pio && pio.max > 0) {
+  if (fin) {
+    if (L.netIncome < 0) flags.push({ p: 3, text: `Loss-making: a net loss of ${amt(-L.netIncome, cur)} in ${L.label}.` });
+  } else if (pio && pio.max > 0) {
     const history = h.slice(0, -1).map((_, i) => (i >= 1 ? piotroskiAt(h.slice(0, i + 1), fin, cur) : null))
       .map((r, i) => (r && r.max > 0 ? { label: h[i].label, score: r.score, max: r.max } : null)).filter((x): x is NonNullable<typeof x> => x !== null);
     piotroski = { score: pio.score, max: pio.max, tests: pio.tests, history };
@@ -333,13 +341,14 @@ export function healthCheck(data: StockData): HealthReport {
     if (pio.max >= 5 && share >= 7 / 9 - 1e-9) strengths.push({ p: 1, text: `Strong fundamentals: Piotroski F-score is ${pio.score} of ${pio.max} for ${L.label}.` });
     if (pio.max >= 5 && share <= 3 / 9 + 1e-9) flags.push({ p: 2.8, text: `Weak fundamentals: Piotroski F-score is only ${pio.score} of ${pio.max} for ${L.label}.` });
     const roaT = pio.tests.find((x) => x.key === "roa"), cfoT = pio.tests.find((x) => x.key === "cfo");
-    if (roaT?.pass === false) flags.push({ p: 3, text: `Loss-making: a net loss of ${amt(L.netIncome, cur)} in ${L.label}.` });
+    if (roaT?.pass === false) flags.push({ p: 3, text: `Loss-making: a net loss of ${amt(-L.netIncome, cur)} in ${L.label}.` });
     if (cfoT?.pass === false && ok(L.cfo)) flags.push({ p: 4, text: `Operations used cash: operating cash flow was ${amt(L.cfo, cur)} in ${L.label}.` });
   } else notes.push("Piotroski F-score: none of the nine tests could be computed from the data.");
+  if (fin) notes.push("Piotroski F-score is not used for financial firms: its cash-flow, leverage, liquidity and margin tests describe industrial companies.");
 
   /* Altman Z'' */
   let altman: HealthReport["altman"] = null;
-  if (fin) notes.push("Altman Z'' is not used for banks and insurers: it was built for companies whose balance sheets are not mostly loans and deposits.");
+  if (fin) notes.push("Altman Z'' is not used for financial firms: it was built for companies whose balance sheets are not mostly loans, deposits or policyholder funds.");
   else {
     const a = altmanZ(L);
     if (!a) notes.push(`Altman Z'' could not be computed: ${L.label} lacks ${altmanMissing(L).join(", ")}.`);
@@ -359,7 +368,7 @@ export function healthCheck(data: StockData): HealthReport {
 
   /* Beneish M */
   let beneish: HealthReport["beneish"] = null;
-  if (fin) notes.push("Beneish M-score is not used for banks and insurers: receivables, gross margin and asset quality mean something different for a lender.");
+  if (fin) notes.push("Beneish M-score is not used for financial firms: receivables, gross margin and asset quality mean something different for a lender or an insurer.");
   else {
     const b = beneishM(P, L);
     if (b.m === null) notes.push(`Beneish M-score could not be computed: ${b.missing.join(", ")} need${b.missing.length === 1 ? "s" : ""} receivables, current assets, net property and equipment, total assets and operating cash flow for ${P.label} and ${L.label}.`);
@@ -390,10 +399,12 @@ export function healthCheck(data: StockData): HealthReport {
       flags.push({ p: 2, text: `Liabilities exceed assets: shareholders' equity is ${amt(L.equity, cur)} in ${L.label}.` });
       return add("roe", "Return on equity", null, "pct", "bad", `Shareholders' equity is negative (${amt(L.equity, cur)}), so ROE is not meaningful.`, "Negative equity");
     }
-    const v = L.netIncome / L.equity, vd = v >= 0.15 ? "good" : v < 0.1 ? "bad" : "ok";
+    // on average equity (opening and closing), the same definition as the returns panel
+    const base = pos(P.equity) ? (P.equity + L.equity) / 2 : L.equity;
+    const v = L.netIncome / base, vd = v >= 0.15 ? "good" : v < 0.1 ? "bad" : "ok";
     if (vd === "good") strengths.push({ p: 3.5, text: `High return for shareholders: ROE was ${pc(v)} in ${L.label}.` });
-    if (vd === "bad") flags.push({ p: 8, text: `Low return for shareholders: ROE was ${pc(v)} in ${L.label}, below 10%.` });
-    add("roe", "Return on equity", v, "pct", vd, `Net profit ÷ shareholders' equity, ${L.label}. 15% or more is strong.${v > 0.5 ? " A very high figure often means buybacks or past losses have shrunk equity." : ""}`);
+    if (vd === "bad") flags.push({ p: 8, text: v < 0 ? `Negative return for shareholders: ROE was ${pc(v)} in ${L.label}.` : `Low return for shareholders: ROE was ${pc(v)} in ${L.label}, below 10%.` });
+    add("roe", "Return on equity", v, "pct", vd, `Net profit ÷ average shareholders' equity, ${L.label}. 15% or more is strong.${v > 0.5 ? " A very high figure often means buybacks or past losses have shrunk equity." : ""}`);
   };
   const splits = shareSteps(h);
   const shareChange = () => {
@@ -525,14 +536,19 @@ export function healthCheck(data: StockData): HealthReport {
     // return on assets
     if (!pos(L.totalAssets)) add("roa", "Return on assets", null, "pct", "na", `Total assets not reported for ${L.label}.`);
     else {
-      const v = L.netIncome / L.totalAssets, vd = v >= 0.01 ? "good" : v < 0.005 ? "bad" : "ok";
-      if (vd === "good") strengths.push({ p: 3, text: `Solid profitability for a lender: return on assets was ${pc(v, 2)} in ${L.label}.` });
-      if (vd === "bad") flags.push({ p: 3.5, text: `Thin profitability: return on assets was only ${pc(v, 2)} in ${L.label}.` });
-      add("roa", "Return on assets", v, "pct", vd, `Net profit ÷ total assets, ${L.label}. For a bank, 1% or more is good.`, pc(v, 2));
+      const v = L.netIncome / L.totalAssets;
+      if (insurer) add("roa", "Return on assets", v, "pct", "info", `Net profit ÷ total assets, ${L.label}. An insurer's assets are mostly policyholder funds, so this reads low by design.`, pc(v, 2));
+      else {
+        const vd = v >= 0.01 ? "good" : v < 0.005 ? "bad" : "ok";
+        if (vd === "good") strengths.push({ p: 3, text: `Solid profitability for a lender: return on assets was ${pc(v, 2)} in ${L.label}.` });
+        if (vd === "bad") flags.push({ p: 3.5, text: v < 0 ? `Loss-making for a lender: return on assets was ${pc(v, 2)} in ${L.label}.` : `Thin profitability: return on assets was only ${pc(v, 2)} in ${L.label}.` });
+        add("roa", "Return on assets", v, "pct", vd, `Net profit ÷ total assets, ${L.label}. For a lender, 1% or more is good.`, pc(v, 2));
+      }
     }
     // capital cushion
     const ea = ratio(L.equity, L.totalAssets);
     if (ea === null) add("eqassets", "Equity ÷ assets", null, "pct", "na", `Equity or total assets not reported for ${L.label}.`);
+    else if (insurer) add("eqassets", "Equity ÷ assets", ea, "pct", "info", `How much of the balance sheet owners fund, ${L.label}. Insurers are judged on solvency ratios that Yahoo does not carry, so this is shown for information.`);
     else {
       const vd = ea >= 0.08 ? "good" : ea < 0.05 ? "bad" : "ok";
       if (vd === "good") strengths.push({ p: 4, text: `Thick capital cushion: equity is ${pc(ea)} of assets in ${L.label}.` });
@@ -550,7 +566,7 @@ export function healthCheck(data: StockData): HealthReport {
       const g = Math.pow(b1 / b0, 1 / (n - 1)) - 1, vd = g >= 0.1 ? "good" : g < 0.03 ? "bad" : "ok";
       const what = perShare ? "Book value per share" : "Shareholders' equity";
       if (vd === "good") strengths.push({ p: 5, text: `${what} grew ${pc(g)} a year over ${span}.` });
-      if (vd === "bad") flags.push({ p: 6, text: `${what} is barely growing: ${pc(g)} a year over ${span}.` });
+      if (vd === "bad") flags.push({ p: 6, text: g < 0 ? `${what} is shrinking: ${pc(g)} a year over ${span}.` : `${what} is barely growing: ${pc(g)} a year over ${span}.` });
       add("bvgrowth", perShare ? "Book value per share growth" : "Book value growth", g, "pct", vd, `${what}, a year, ${span}${perShare ? ", adjusted for bonus issues and splits" : ""}. Mergers and share issues lift it too.`, `${spc(g)} a year`);
     }
     shareChange();
@@ -562,7 +578,7 @@ export function healthCheck(data: StockData): HealthReport {
   const gaps = metrics.filter((m) => m.verdict === "na").map((m) => m.label.toLowerCase());
   if (gaps.length) notes.push(`Not available from the data: ${gaps.join(", ")}.`);
   splits.forEach((s) => { if (s && s.split !== 1) notes.push(`${s.label}: the share count changed ${splitText(s.split)} against the year before, which looks like a bonus issue or split (or a consolidation), so it is not counted as new shares.`); });
-  if (data.fxNote) notes.push(`Figures were converted from ${data.financialCurrency} to ${cur} at each year's average rate, so ratios that compare two years also move with the exchange rate.`);
+  if (data.fxNote && data.financialCurrency !== cur) notes.push(`Figures were converted from ${data.financialCurrency} to ${cur} at each year's average rate, so ratios that compare two years also move with the exchange rate.`);
 
   /* score */
   const parts: [number, number][] = [];
@@ -579,10 +595,13 @@ export function healthCheck(data: StockData): HealthReport {
   const fl = pick(flags), st = pick(strengths);
   const headline = (s: string) => { const t = s.split(":")[0]; return t.charAt(0).toLowerCase() + t.slice(1); };
   const distress = altman?.zone === "distress" || (ok(L.equity) && L.equity <= 0);
-  const tone = TONE[grade] + (distress && (grade === "C" || grade === "D") ? " and shows signs of financial distress" : "");
-  const summary = grade === "–"
-    ? "Not enough data to grade this company."
-    : `Grade ${grade} (${score}/100): ${tone}, with ${plural(st.length, "strength")} and ${fl.length ? `${plural(fl.length, "red flag")} (top concern: ${headline(fl[0])})` : "no red flags"}.`;
+  // a high score with as many red flags as strengths, or a serious one (loss, distress, manipulation), is not "healthy"
+  const serious = flags.some((f) => f.p <= 3);
+  const mixed = (grade === "A" || grade === "B") && (fl.length >= st.length || serious);
+  const base = fin && grade === "A" ? "passes most of the checks for a financial firm" : TONE[grade];
+  const tone = (mixed ? "shows a mixed picture" : base) + (distress && (grade === "C" || grade === "D") ? " and shows signs of financial distress" : "");
+  const verdict = grade === "–" ? "" : `${tone}, with ${plural(st.length, "strength")} and ${fl.length ? `${plural(fl.length, "red flag")} (top concern: ${headline(fl[0])})` : "no red flags"}`;
+  const summary = grade === "–" ? "Not enough data to grade this company." : `Grade ${grade} (${score}/100): ${verdict}.`;
 
-  return { score, grade, summary, piotroski, altman, beneish, metrics, flags: fl, strengths: st, notes, years: h.map((y) => y.label), financial: fin };
+  return { score, grade, summary, verdict, piotroski, altman, beneish, metrics, flags: fl, strengths: st, notes, years: h.map((y) => y.label), financial: fin };
 }

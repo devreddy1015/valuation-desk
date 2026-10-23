@@ -1,7 +1,7 @@
 import "server-only";
 import YahooFinance from "yahoo-finance2";
 import { cached, HOUR } from "./cache";
-import { DataError } from "./yahoo";
+import { DataError, isNotFound, yahooCall } from "./yahoo";
 import { majorCurrency } from "../markets";
 import type { PriceHistory, PricePoint, SplitEvent } from "../bands";
 
@@ -22,10 +22,9 @@ export function getPriceHistory(rawSymbol: string): Promise<PriceHistory> {
     const start = new Date(Date.UTC(now.getUTCFullYear() - 10, now.getUTCMonth(), 1));
     let r: any;
     try {
-      r = await yf.chart(symbol, { period1: start, interval: "1mo", events: "split" });
+      r = await yf.chart(symbol, { period1: start, interval: "1mo", events: "split" }, yahooCall());
     } catch (e) {
-      const msg = String((e as Error)?.message ?? e);
-      if (/no data|not found|delisted|invalid/i.test(msg)) throw new DataError(`Yahoo Finance has no price history for ${symbol}`, "not_found");
+      if (isNotFound(e)) throw new DataError(`Yahoo Finance has no price history for ${symbol}`, "not_found");
       throw new DataError(`Price history for ${symbol} is unavailable right now`, "upstream");
     }
     const cur = majorCurrency(r?.meta?.currency);

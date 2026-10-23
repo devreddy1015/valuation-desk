@@ -28,11 +28,14 @@ export interface HistAverages {
   growth: number; margin: number; tax: number; da: number; capex: number; wc: number; marginLast: number; growthLast: number;
 }
 export function histAverages(h: FiscalYear[]): HistAverages {
-  const growth: number[] = [], wc: number[] = [];
+  const growth: number[] = [];
+  // Working capital per unit of revenue change, pooled over the years where revenue grew by 3% or
+  // more: a year of near-flat revenue would otherwise divide by almost nothing and dominate a plain mean.
+  let wcSum = 0, dSum = 0;
   for (let i = 1; i < h.length; i++) {
     if (h[i - 1].revenue > 0) growth.push(h[i].revenue / h[i - 1].revenue - 1);
     const d = h[i].revenue - h[i - 1].revenue;
-    if (d > 0) wc.push(h[i].wcInc / d);
+    if (h[i - 1].revenue > 0 && d >= 0.03 * h[i - 1].revenue) { wcSum += h[i].wcInc; dSum += d; }
   }
   const pos = h.filter((y) => y.revenue > 0);
   const last = h[h.length - 1];
@@ -42,7 +45,7 @@ export function histAverages(h: FiscalYear[]): HistAverages {
     tax: avg(h.filter((y) => y.pbt > 0).map((y) => y.tax / y.pbt)),
     da: avg(pos.map((y) => y.da / y.revenue)),
     capex: avg(pos.map((y) => y.capex / y.revenue)),
-    wc: avg(wc),
+    wc: dSum > 0 ? wcSum / dSum : NaN,
     marginLast: last && last.revenue > 0 ? last.ebit / last.revenue : NaN,
     growthLast: growth.length ? growth[growth.length - 1] : NaN,
   };
@@ -60,11 +63,11 @@ export function starterDrivers(data: StockData): Record<ScenarioKey, Drivers> {
   const g2 = fin(data.estimates.growthNextYear) ? data.estimates.growthNextYear * 100 : (g1 + longRun) / 2;
   const a = clamp(g1, -20, 40), b = clamp(g2, -20, 40);
   const base = [a, b, b + (longRun - b) / 3, b + (2 * (longRun - b)) / 3, longRun].map(round1);
-  const m0 = fin(H.marginLast) ? H.marginLast * 100 : fin(H.margin) ? H.margin * 100 : 10;
+  const m0 = clamp(fin(H.marginLast) ? H.marginLast * 100 : fin(H.margin) ? H.margin * 100 : 10, -100, 90);
   const tax = round1(clamp(fin(H.tax) ? H.tax * 100 : 25, 10, 40));
   const da = round1(clamp(fin(H.da) ? H.da * 100 : 3, 0, 30));
   const capex = round1(clamp(fin(H.capex) ? H.capex * 100 : 3, 0, 40));
-  const wc = Math.round(clamp(fin(H.wc) ? H.wc * 100 : 15, 0, 60));
+  const wc = Math.round(clamp(fin(H.wc) ? H.wc * 100 : 15, 0, 40));
   // Heavy investment phases rarely last for ever: when capex runs above depreciation, fade it
   // to 1.15x depreciation by year 5 (a common normalisation); otherwise keep the history.
   const capexTarget = capex > da * 1.15 ? round1(da * 1.15) : capex;
@@ -139,6 +142,37 @@ export function fyLabel(iso: string, prefixFY: boolean): string {
   return prefixFY ? `FY${String(y).slice(2)}` : String(y);
 }
 
+/**
+ * The input at which f crosses zero, for the reverse DCF. Value need not be monotonic in the input:
+ * with a large working-capital driver, shrinking revenue releases cash, so a "shrink to riches" root
+ * can exist far below the one that matters. Every crossing in [lo, hi] is found; only those where f
+ * moves in the same direction as at the user's own case (x0) count, and the nearest to x0 wins.
+ * NaN when no such crossing exists.
+ */
+export function impliedRoot(f: (x: number) => number, x0: number, lo: number, hi: number, steps = 160): number {
+  const dx = (hi - lo) / steps;
+  const slope = (x: number) => { const h = 0.05; const a = f(x - h), b = f(x + h); return fin(a) && fin(b) ? Math.sign(b - a) : 0; };
+  const want = fin(x0) ? slope(clamp(x0, lo, hi)) : 0;
+  let best = NaN;
+  let px = lo, pf = f(lo);
+  for (let i = 1; i <= steps; i++) {
+    const x = lo + i * dx, fx = f(x);
+    if (fin(pf) && fin(fx) && pf * fx <= 0 && (pf !== 0 || fx !== 0)) {
+      let a = px, b = x, fa = pf;
+      for (let k = 0; k < 80; k++) {
+        const m = (a + b) / 2, fm = f(m);
+        if (!fin(fm)) break;
+        if (fa * fm <= 0) b = m; else { a = m; fa = fm; }
+      }
+      const root = (a + b) / 2;
+      const dir = Math.sign(fx - pf);
+      if ((want === 0 || dir === want) && (!fin(best) || Math.abs(root - x0) < Math.abs(best - x0))) best = root;
+    }
+    px = x; pf = fx;
+  }
+  return best;
+}
+
 export function compute(inp: UserInputs, data: StockData, peerRows: PeerRow[], valDate: number): Valuation {
   const r = inp.rate, price = inp.price, shares = data.shares, B = data.bridge;
   const last = data.history[data.history.length - 1];
@@ -206,7 +240,8 @@ export function compute(inp: UserInputs, data: StockData, peerRows: PeerRow[], v
     evS: stat(inc.map((p) => p.evSales).filter((x): x is number => ok1(x, 0, 100))),
     pb: stat(inc.map((p) => p.pb).filter((x): x is number => ok1(x, 0, 100))),
   };
-  const netCash = data.compsNetCash ?? B.cash - B.borrowings - B.leases;
+  // EV includes minority holders' claim, since EBITDA includes their share of consolidated profit
+  const netCash = data.compsNetCash ?? B.cash - B.borrowings - B.leases - B.nci;
   const T = data.ttm, bv = data.bookValuePerShare;
   const mapStat = (s: Stat, f: (m: number) => number): Stat => ({ q1: f(s.q1), med: f(s.med), q3: f(s.q3), n: s.n });
   const implied = {
@@ -239,28 +274,9 @@ export function compute(inp: UserInputs, data: StockData, peerRows: PeerRow[], v
   const ok = fin(pt);
   const rating = !ok ? "–" : upside > pc(inp.buy) ? "BUY" : upside < pc(inp.sell) ? "SELL" : "HOLD";
 
-  // reverse DCF: constant growth, or constant margin, that makes value = price
-  // Scan upward for the first crossing (value need not be monotonic: at very high growth the
-  // working-capital drain can push value back down), then bisect inside that bracket.
-  const solve = (f: (x: number) => number, lo: number, hi: number) => {
-    const steps = 60, dx = (hi - lo) / steps;
-    let a = NaN, b = NaN, fa = NaN, fb = NaN;
-    let px = lo, pf = f(lo);
-    for (let i = 1; i <= steps; i++) {
-      const x = lo + i * dx, fx = f(x);
-      if (fin(pf) && fin(fx) && pf * fx <= 0) { a = px; b = x; fa = pf; fb = fx; break; }
-      px = x; pf = fx;
-    }
-    if (!fin(a) || !fin(fa) || !fin(fb)) return NaN;
-    for (let i = 0; i < 80; i++) {
-      const m = (a + b) / 2, fm = f(m);
-      if (!fin(fm)) return NaN;
-      if (fa * fm <= 0) { b = m; fb = fm; } else { a = m; fa = fm; }
-    }
-    return (a + b) / 2;
-  };
-  const impliedGrowth = L.valid ? solve((G) => dcf({ ...live, growth: Array(FORECAST_YEARS).fill(G) }, wacc, g).vps - price, -60, 100) : NaN;
-  const impliedMargin = L.valid ? solve((M) => dcf({ ...live, margin: Array(FORECAST_YEARS).fill(M) }, wacc, g).vps - price, -50, 90) : NaN;
+  // reverse DCF: the constant growth, or constant margin, that makes value = price
+  const impliedGrowth = L.valid ? impliedRoot((G) => dcf({ ...live, growth: Array(FORECAST_YEARS).fill(G) }, wacc, g).vps - price, avg(live.growth), -60, 100) : NaN;
+  const impliedMargin = L.valid ? impliedRoot((M) => dcf({ ...live, margin: Array(FORECAST_YEARS).fill(M) }, wacc, g).vps - price, avg(live.margin), -50, 90) : NaN;
 
   const H = histAverages(data.history);
   const checks: Check[] = [

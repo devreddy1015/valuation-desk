@@ -7,6 +7,7 @@ export default function ExcelButton({ getPayload, symbol }: { getPayload: () => 
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
   const go = async () => {
+    if (busy) return;
     setBusy(true); setMsg("Building the Excel model…");
     try {
       const res = await fetch("/api/excel", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(getPayload()) });
@@ -31,7 +32,8 @@ export default function ExcelButton({ getPayload, symbol }: { getPayload: () => 
   };
   return (
     <>
-      <button type="button" className="btn" onClick={go} disabled={busy} aria-describedby="xl-status">{busy ? "Building Excel…" : "Excel model"}</button>
+      {/* aria-disabled rather than disabled, so keyboard focus stays on the button while it works */}
+      <button type="button" className="btn" onClick={go} aria-disabled={busy} aria-describedby="xl-status">{busy ? "Building Excel…" : "Excel model"}</button>
       <span id="xl-status" className="sr-only" role="status">{msg}</span>
       {msg && !busy && <span className="share-msg" aria-hidden="true">{msg}</span>}
     </>

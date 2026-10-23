@@ -8,7 +8,7 @@ import Summary from "./Summary";
 import { useStored, SETTINGS_KEY, DEFAULT_SETTINGS, type Settings } from "@/lib/client/storage";
 import {
   PORTFOLIO_BASE_KEY, PORTFOLIO_KEY, SAMPLE_PORTFOLIO, baseOptions, cleanHoldings, currencyGuess, defaultBase, exportCsv,
-  fetchFx, fetchScanRow, isSample, mapPool, mergeHoldings, xray, type Holding, type Lot, type RowResult,
+  fetchFx, fetchScanRow, isSample, mapPool, mergeHoldings, xray, type Holding, type Lot, type MergeMode, type RowResult,
 } from "@/lib/portfolio";
 
 const fxKey = (from: string, to: string) => `${from}>${to}`;
@@ -20,44 +20,56 @@ export default function Portfolio() {
   const [settings] = useStored<Settings>(SETTINGS_KEY, DEFAULT_SETTINGS);
   const holdings = useMemo(() => cleanHoldings(raw), [raw]);
   const [rows, setRows] = useState<Record<string, RowResult>>({});
-  const [fx, setFx] = useState<Record<string, number | null>>({});
+  const [fx, setFx] = useState<Record<string, number | "failed">>({}); // a missing key is still loading
   const [armed, setArmed] = useState(false);
   const [notice, setNotice] = useState("");
-  const inflight = useRef(new Set<string>());
-  const live = useRef(true);
-  useEffect(() => { live.current = true; return () => { live.current = false; }; }, []);
+  const [tick, setTick] = useState(0); // bumped by Retry to restart the queues
+  const rowsRef = useRef(rows);
+  useEffect(() => { rowsRef.current = rows; }, [rows]);
+  const cancelBtn = useRef<HTMLButtonElement>(null);
+  useEffect(() => { if (armed) cancelBtn.current?.focus(); }, [armed]);
 
-  // value every holding that has no result yet, four at a time
+  // Value every holding that has no result yet, four at a time. When the holdings change (or the page
+  // closes) the old queue is aborted, so removed symbols stop costing requests and concurrency stays at four.
   useEffect(() => {
-    const todo = holdings.map((h) => h.symbol).filter((s) => !(s in rows) && !inflight.current.has(s));
+    const todo = holdings.map((h) => h.symbol).filter((s) => !(s in rowsRef.current));
     if (!todo.length) return;
-    todo.forEach((s) => inflight.current.add(s));
+    const ctl = new AbortController();
+    const fetcher = (u: string) => fetch(u, { signal: ctl.signal });
     void mapPool(todo, 4, async (s) => {
-      const r = await fetchScanRow(s);
-      inflight.current.delete(s);
-      if (live.current) setRows((p) => ({ ...p, [s]: r }));
+      if (ctl.signal.aborted) return;
+      const r = await fetchScanRow(s, fetcher);
+      if (!ctl.signal.aborted) setRows((p) => ({ ...p, [s]: r }));
     });
-  }, [holdings, rows]);
+    return () => ctl.abort();
+  }, [holdings, tick]);
 
   const currencies = useMemo(() => {
     const c = holdings.map((h) => { const r = rows[h.symbol]; return r?.ok ? r.row.currency : currencyGuess(h.symbol); });
     return [...new Set(c.filter((x): x is string => !!x))];
   }, [holdings, rows]);
-  const base = baseChoice || defaultBase(currencies);
+  const options = baseOptions(currencies);
+  // a stored base that is no longer on offer (the only Swiss holding was removed) falls back to the default
+  const base = baseChoice && options.includes(baseChoice) ? baseChoice : defaultBase(currencies);
 
-  // exchange rates into the base currency for every currency held
+  // exchange rates into the base currency for every currency held; failures are retried with the rows
+  const fxRef = useRef(fx);
+  useEffect(() => { fxRef.current = fx; }, [fx]);
   useEffect(() => {
-    const need = currencies.filter((c) => c !== base && !(fxKey(c, base) in fx) && !inflight.current.has(fxKey(c, base)));
+    const need = currencies.filter((c) => c !== base && !(fxKey(c, base) in fxRef.current));
+    if (!need.length) return;
+    let off = false;
     need.forEach((c) => {
       const k = fxKey(c, base);
-      inflight.current.add(k);
-      void fetchFx(c, base).then((rate) => { inflight.current.delete(k); if (live.current) setFx((p) => ({ ...p, [k]: rate })); });
+      void fetchFx(c, base).then((rate) => { if (!off) setFx((p) => ({ ...p, [k]: rate ?? "failed" })); });
     });
-  }, [currencies, base, fx]);
+    return () => { off = true; };
+  }, [currencies, base, tick]);
 
   const inputs = useMemo(() => holdings.map((h) => {
     const r = rows[h.symbol], row = r?.ok ? r.row : null;
-    const rate = !row ? null : row.currency === base ? 1 : fx[fxKey(row.currency, base)] ?? null;
+    const f = row ? fx[fxKey(row.currency, base)] : undefined;
+    const rate = !row ? null : row.currency === base ? 1 : typeof f === "number" ? f : null;
     return { holding: h, row, fx: rate };
   }), [holdings, rows, fx, base]);
   const x = useMemo(() => xray(inputs, base), [inputs, base]);
@@ -67,7 +79,7 @@ export default function Portfolio() {
       const r = rows[h.symbol];
       if (!r) out[h.symbol] = { kind: "loading" };
       else if (!r.ok) out[h.symbol] = { kind: "failed", error: r.error };
-      else if (r.row.currency !== base && typeof fx[fxKey(r.row.currency, base)] !== "number") out[h.symbol] = { kind: "fx", pending: !(fxKey(r.row.currency, base) in fx), currency: r.row.currency };
+      else if (r.row.currency !== base && typeof fx[fxKey(r.row.currency, base)] !== "number") out[h.symbol] = { kind: "fx", pending: fx[fxKey(r.row.currency, base)] !== "failed", currency: r.row.currency };
       else out[h.symbol] = { kind: "ok", via: r.via };
     }
     return out;
@@ -75,14 +87,16 @@ export default function Portfolio() {
 
   const done = holdings.filter((h) => h.symbol in rows).length;
   const failed = holdings.filter((h) => rows[h.symbol] && !rows[h.symbol].ok);
+  const unconverted = holdings.filter((h) => states[h.symbol]?.kind === "fx" && !(states[h.symbol] as { pending: boolean }).pending);
   const now = () => new Date().toISOString();
   const say = (m: string) => { setNotice(m); setArmed(false); };
 
-  const addLots = (lots: Lot[], mode: "add" | "replace") => {
+  const addLots = (lots: Lot[], mode: MergeMode) => {
     const r = mergeHoldings(holdings, lots, now(), mode);
     setRaw(r.holdings);
-    const parts = [`${mode === "replace" ? "Replaced your holdings with" : "Added"} ${lots.length} holding${lots.length === 1 ? "" : "s"}.`];
-    if (r.combined.length) parts.push(`Combined with existing: ${r.combined.join(", ")}.`);
+    const n = `${lots.length} holding${lots.length === 1 ? "" : "s"}`;
+    const parts = [mode === "replace" ? `Replaced your holdings with ${n}.` : mode === "update" ? `Imported ${n}.` : `Added ${n}.`];
+    if (r.combined.length) parts.push(`${mode === "update" ? "Quantities updated for" : "Added on top of existing"}: ${r.combined.join(", ")}.`);
     if (r.dropped.length) parts.push(`Over the limit, not added: ${r.dropped.join(", ")}.`);
     say(parts.join(" "));
   };
@@ -96,20 +110,30 @@ export default function Portfolio() {
     say(`Saved ${symbol}.`);
   };
   const remove = (symbol: string) => { setRaw(holdings.filter((h) => h.symbol !== symbol)); say(`Removed ${symbol}.`); };
-  const retry = () => setRows((p) => { const n = { ...p }; for (const h of failed) delete n[h.symbol]; return n; });
+  const retry = () => {
+    const drop = new Set(failed.map((h) => h.symbol));
+    const nextRows = { ...rowsRef.current };
+    drop.forEach((s) => delete nextRows[s]);
+    rowsRef.current = nextRows;
+    setRows(nextRows);
+    const nextFx = Object.fromEntries(Object.entries(fxRef.current).filter(([, v]) => v !== "failed"));
+    fxRef.current = nextFx;
+    setFx(nextFx);
+    setTick((t) => t + 1);
+  };
   const download = () => {
-    const blob = new Blob([exportCsv(x)], { type: "text/csv;charset=utf-8" });
+    const blob = new Blob(["\uFEFF" + exportCsv(x)], { type: "text/csv;charset=utf-8" }); // the BOM tells Excel it is UTF-8
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
     a.download = `portfolio-xray-${new Date().toISOString().slice(0, 10)}.csv`;
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   };
-  const clear = () => { if (!armed) { setArmed(true); return; } setRaw([]); setRows({}); say("Cleared every holding from this browser."); };
+  const clear = () => { if (!armed) { setArmed(true); return; } setRaw([]); setRows({}); rowsRef.current = {}; say("Cleared every holding from this browser."); };
 
   if (!loaded) return <section className="card pf-skeleton" aria-busy="true"><p className="muted">Loading your holdings…</p></section>;
 
-  const manage = <ManageHoldings count={holdings.length} onAdd={(l) => addLots([l], "add")} onImport={addLots} />;
+  const manage = <ManageHoldings count={holdings.length} held={holdings.map((h) => h.symbol)} onAdd={(l) => addLots([l], "add")} onImport={addLots} />;
   if (!holdings.length) {
     return (
       <>
@@ -131,7 +155,7 @@ export default function Portfolio() {
       <div className="pf-toolbar no-print">
         <label className="pf-inline">Show totals in
           <select className="pf-select" value={base} onChange={(e) => setBaseChoice(e.target.value)}>
-            {baseOptions(currencies).map((c) => <option key={c} value={c}>{c}</option>)}
+            {options.map((c) => <option key={c} value={c}>{c}</option>)}
           </select>
         </label>
         {done < holdings.length ? (
@@ -139,8 +163,10 @@ export default function Portfolio() {
             <progress max={holdings.length} value={done} aria-label="Valuing holdings" />
             <span>Valued {done} of {holdings.length}</span>
           </div>
-        ) : <span className="small muted" role="status">All {holdings.length} holdings valued{failed.length ? `, ${failed.length} failed` : ""}.</span>}
-        {failed.length > 0 && done === holdings.length && <button type="button" className="btn small" onClick={retry}>Retry {failed.length} failed</button>}
+        ) : <span className="small muted" role="status">{failed.length
+          ? `Valued ${holdings.length - failed.length} of ${holdings.length}; ${failed.length} could not be valued`
+          : holdings.length === 1 ? "The holding is valued" : `All ${holdings.length} holdings valued`}{unconverted.length ? `; ${unconverted.length} not converted to ${base}` : ""}.</span>}
+        {(failed.length > 0 || unconverted.length > 0) && done === holdings.length && <button type="button" className="btn small" onClick={retry}>Retry {failed.length + unconverted.length} that failed</button>}
         <span className="pf-spacer" />
         <a className="btn small" href="#pf-manage">Add or import</a>
         <button type="button" className="btn small" onClick={download} disabled={!x.valued}>Download CSV</button>
@@ -148,7 +174,7 @@ export default function Portfolio() {
         {armed ? (
           <span className="pf-confirm" role="alert">Remove all {holdings.length} holdings?
             <button type="button" className="btn small pf-danger" onClick={clear}>Yes, clear all</button>
-            <button type="button" className="btn small ghost" onClick={() => setArmed(false)}>Cancel</button>
+            <button type="button" className="btn small ghost" ref={cancelBtn} onClick={() => setArmed(false)}>Cancel</button>
           </span>
         ) : <button type="button" className="btn small ghost" onClick={clear}>Clear all</button>}
       </div>

@@ -14,6 +14,7 @@ import { readJSON, writeJSON, useStored, SETTINGS_KEY, DEFAULT_SETTINGS, WATCH_K
 import type { Drivers, PeerRow, StockData, UserInputs } from "@/lib/types";
 import { applyOverrides, type Overrides } from "@/lib/overrides";
 import { healthCheck } from "@/lib/quality";
+import { isExtreme } from "@/lib/scanMath";
 import { clearShareHash, readSharedFromHash, type ExportPayload, type SharedState } from "@/lib/client/share";
 import { SCENARIOS } from "@/lib/types";
 
@@ -45,6 +46,7 @@ export default function Desk({ data: raw, peers: autoPeers, now }: { data: Stock
   const [resetArmed, setResetArmed] = useState(false);
   const [forceDcf, setForceDcf] = useState(false);
   const [shared, setShared] = useState(false); // showing someone's share link: not saved until kept
+  const [sharedInfo, setSharedInfo] = useState({ edits: 0, peers: 0 });
   const showDcf = !raw.financial || forceDcf;
 
   // load saved inputs for this stock (prices always start from the live quote)
@@ -61,12 +63,17 @@ export default function Desk({ data: raw, peers: autoPeers, now }: { data: Stock
     setLoaded(true);
     // a share link (#v=...) wins over saved inputs, on today's live price, until the user keeps it
     let off = false;
-    const fromHash = () => void readSharedFromHash(raw.symbol).then((sh) => {
+    const fromHash = () => void readSharedFromHash(raw.symbol).then(async (sh) => {
       if (off || !sh) return;
       setShared(true);
+      setSharedInfo({ edits: Object.keys(sh.overrides).length, peers: sh.extraPeers.length });
       setOverrides(sh.overrides);
-      setExtraPeers(sh.extraPeers);
       setInp({ ...defaultInputs(raw, autoPeers), ...sh.inputs, price: raw.price });
+      // A link carries whole peer rows, which anyone can edit: keep only the symbols and fetch their
+      // figures again, so a shared table never shows numbers that did not come from the data.
+      const fresh = await Promise.all(sh.extraPeers.map((p) => fetch(`/api/peer?symbol=${encodeURIComponent(p.symbol)}`)
+        .then((r) => (r.ok ? r.json() : null)).then((j) => (j?.peer as PeerRow | undefined) ?? null).catch(() => null)));
+      if (!off) setExtraPeers(fresh.filter((p): p is PeerRow => p !== null));
     });
     fromHash();
     window.addEventListener("hashchange", fromHash); // a link pasted into a tab already on this stock
@@ -143,7 +150,7 @@ export default function Desk({ data: raw, peers: autoPeers, now }: { data: Stock
     lines.push(`• Peers: ${money(R.compsValue, cur)} per share (${R.compsMethod}; ${R.peers.filter((p) => p.included).length} peers).`);
     lines.push(`• Scenarios: bear ${money(R.scen.bear.vps, cur)}, base ${money(R.scen.base.vps, cur)}, bull ${money(R.scen.bull.vps, cur)}; probability-weighted ${money(R.pw, cur)}.`);
     lines.push(`• What the price implies: ${Number.isFinite(R.impliedGrowth) ? R.impliedGrowth.toFixed(1) + "% revenue growth a year" : "outside the range tested"} for ${R.fyLabels[0]}–${R.fyLabels[FORECAST_YEARS - 1]}, against ${R.liveAvgGrowth.toFixed(1)}% in this forecast.`);
-    lines.push(`• Monte Carlo: ${pct(MC.probAbove, 0)} of ${MC.n.toLocaleString()} simulated outcomes are above today's price; middle 80% ${money(MC.p10, cur)} to ${money(MC.p90, cur)}.`);
+    lines.push(`• Monte Carlo: ${pct(MC.probAbove, 0)} of ${MC.n.toLocaleString("en-IN")} simulated outcomes are above today's price; middle 80% ${money(MC.p10, cur)} to ${money(MC.p90, cur)}.`);
     lines.push(`• Key assumptions (${inp.scenario}): revenue growth ${st.growth.map((g) => g.toFixed(1) + "%").join(" → ")}; EBIT margin ${st.margin[0].toFixed(1)}% to ${st.margin[FORECAST_YEARS - 1].toFixed(1)}%; tax ${st.tax[0].toFixed(1)}%.`);
     const failed = R.checks.filter((c) => c.pass === false).map((c) => c.what);
     lines.push(`• Checks: ${failed.length ? "to review: " + failed.join("; ") : "all pass"}.`);
@@ -248,7 +255,7 @@ export default function Desk({ data: raw, peers: autoPeers, now }: { data: Stock
           <button type="button" className={`btn${resetArmed ? " primary" : ""}`} onClick={resetAll}>{resetArmed ? "Click again to reset" : "Reset"}</button>
         </div>
       </div>
-      {shared && <SharedBanner onKeep={keepShared} onDiscard={dropShared} />}
+      {shared && <SharedBanner edits={sharedInfo.edits} peers={sharedInfo.peers} onKeep={keepShared} onDiscard={dropShared} />}
       {calls && <p className="note no-print" style={{ marginBottom: 10 }}>Calls are model outputs for learning. In India, giving buy or sell recommendations to clients can require SEBI Research Analyst registration.</p>}
 
       <section className="verdict" aria-live="polite" aria-label="Result">
@@ -257,14 +264,15 @@ export default function Desk({ data: raw, peers: autoPeers, now }: { data: Stock
           <span className="v num">{R.ok ? money(R.pt, cur) : "–"}</span>
           {calls ? <span className={`pill ${R.rating === "–" ? "na" : R.rating}`}>{icon(R.rating)}{R.rating}</span> : <span className={`pill VALUE`}>{R.ok ? pct(R.upside, 1, true) : "–"}</span>}
           <span className="n">{R.ok ? `${pct(R.upside, 1, true)} vs ${money(inp.price, cur)}${calls ? ` · BUY above ${inp.buy}%, SELL below ${String(inp.sell).replace("-", "−")}%` : ""}` : "Fix the inputs flagged in the checks to get a value"}</span>
+          {R.ok && isExtreme(R.pt, inp.price) && <span className="n hero-check">Far from the price ({R.pt > inp.price ? `${(R.pt / inp.price).toFixed(1)} times it` : `${pct(R.pt / inp.price, 0)} of it`}): odd data or inputs that don&apos;t fit the company are the usual cause. Check the warnings and the company data before relying on it.</span>}
         </div>
         {showDcf
           ? <div className="card stat"><span className="label">DCF ({inp.usePW ? "weighted" : inp.scenario})</span><span className="v num">{R.dcfOk ? money(R.dcfUsed, cur) : "–"}</span><span className="n">{R.dcfOk ? `${pct(R.dcfUsed / inp.price - 1, 1, true)} vs price · WACC ${pct(R.wacc, 1)}` : "not meaningful with these inputs"}</span></div>
-          : <div className="card stat"><span className="label">DCF</span><span className="v">Not used</span><span className="n">a free-cash-flow DCF doesn&apos;t suit a bank or insurer</span></div>}
+          : <div className="card stat"><span className="label">DCF</span><span className="v">Not used</span><span className="n">a free-cash-flow DCF doesn&apos;t suit a lender, insurer or holding company</span></div>}
         <div className="card stat"><span className="label">Peers</span><span className="v num">{money(R.compsValue, cur)}</span><span className="n">{R.peers.filter((p) => p.included).length} peers · {data.financial ? `median P/E ${mult(R.stats.pe.med)}` : `median EV/EBITDA ${mult(R.stats.evE.med)}`}</span></div>
         {showDcf ? <>
           <div className="card stat"><span className="label">Price implies</span><span className="v num">{Number.isFinite(R.impliedGrowth) ? R.impliedGrowth.toFixed(1) + "%" : "–"}</span><span className="n">revenue growth a year; your case {R.liveAvgGrowth.toFixed(1)}%</span></div>
-          <div className="card stat"><span className="label">Chance worth more</span><span className="v num">{pct(MC.probAbove, 0)}</span><span className="n">of {MC.n.toLocaleString()} simulated outcomes</span></div>
+          <div className="card stat"><span className="label">Chance worth more</span><span className="v num">{pct(MC.probAbove, 0)}</span><span className="n">of {MC.n.toLocaleString("en-IN")} simulated outcomes</span></div>
         </> : <>
           <div className="card stat"><span className="label">P/E vs peers</span><span className="v num">{pct(R.discount, 1, true)}</span><span className="n">{mult(R.subject.pe)} against a peer median of {mult(R.stats.pe.med)}</span></div>
           <div className="card stat"><span className="label">Price to book</span><span className="v num">{mult(R.subject.pb)}</span><span className="n">peer median {mult(R.stats.pb.med)}</span></div>
@@ -373,7 +381,7 @@ export default function Desk({ data: raw, peers: autoPeers, now }: { data: Stock
 
           {!showDcf && (
             <section className="card section" aria-labelledby="fin-h">
-              <div className="section-head"><h2 id="fin-h">DCF sections are hidden for banks and insurers</h2><p>For a lender, debt is raw material rather than financing, so free cash flow to the firm and the WACC bridge don&apos;t describe the business. The value above uses peer P/E and P/B only.</p></div>
+              <div className="section-head"><h2 id="fin-h">DCF sections are hidden for financial firms</h2><p>For a lender, an insurer or an investment holding company, debt is raw material rather than financing, so free cash flow to the firm and the WACC bridge don&apos;t describe the business. The value above uses peer P/E and P/B only.</p></div>
               <button type="button" className="btn small" style={{ alignSelf: "flex-start" }} onClick={() => setForceDcf(true)}>Show the DCF sections anyway</button>
             </section>
           )}

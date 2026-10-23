@@ -1,6 +1,6 @@
 // The valuation as a few plain-English sentences, each tied to a number: what the price implies,
 // how the user's case compares, what the business earns at today's price, how much of the price
-// pays for growth, and how wide the range of outcomes is. Banks and insurers get peers and ROE.
+// pays for growth, and how wide the range of outcomes is. Financial firms get peers and ROE.
 import { FORECAST_YEARS, type MonteCarlo, type Valuation } from "./model";
 import type { HealthReport } from "./quality";
 import { lastRoe, type Returns } from "./returns";
@@ -64,7 +64,7 @@ function callSentence(R: Valuation, inp: UserInputs, cur: string): string {
   if (!R.ok || R.rating === "–") return "";
   const w = Math.round(R.w * 100);
   const how = !R.dcfOk || w === 0 ? "peers only" : w === 100 ? "DCF only" : `${w}% DCF and ${100 - w}% peers`;
-  return ` The model's call is ${R.rating}: a value estimate of ${money(R.pt, cur)} (${how}) is ${pct(R.upside, 1, true)} against today's price, with the lines you set at ${pct(inp.buy / 100, 0, true)} and ${pct(inp.sell / 100, 0, true)}.`;
+  return ` The model's call is ${R.rating}: a price target of ${money(R.pt, cur)} (${how}) is ${pct(R.upside, 1, true)} against today's price, with the lines you set at ${pct(inp.buy / 100, 0, true)} and ${pct(inp.sell / 100, 0, true)}.`;
 }
 
 export function storyFor({ data, inp, R, MC, ret, health, calls }: StoryInput): Story {
@@ -77,12 +77,14 @@ export function storyFor({ data, inp, R, MC, ret, health, calls }: StoryInput): 
     const hg = historicalGrowth(data);
     const ig = fin(R.impliedGrowth) ? R.impliedGrowth / 100 : null;
     const years = `${R.fyLabels[0]}–${R.fyLabels[FORECAST_YEARS - 1]}`;
-    const dcfOk = R.live.valid && fin(R.live.vps);
+    // the same rule as the model: a DCF counts only when it gives a positive value (and not the weighted DCF, which the story does not describe)
+    const dcfOk = R.live.valid && fin(R.live.vps) && R.live.vps > 0;
 
     // 1. what the price implies against what the company has delivered
     if (dcfOk && ig !== null) {
       const v = hg ? growthVerdict(ig, hg.rate) : null;
-      const past = hg ? ` ${name} grew revenue by ${pct(hg.rate)} a year between ${hg.from} and ${hg.to}, so the price asks for ${v === "slower" ? "less than" : v === "more" ? "more than" : "about what"} it has delivered.` : "";
+      const did = hg ? (hg.rate < -0.0005 ? `revenue shrank ${pct(-hg.rate)} a year` : `revenue grew ${pct(hg.rate)} a year`) : "";
+      const past = hg ? ` ${name}'s ${did} between ${hg.from} and ${hg.to}, so the price asks for ${v === "slower" ? "less than" : v === "more" ? "more than" : "about what"} it has delivered.` : "";
       points.push({ key: "implied", tone: v === "slower" ? "good" : v === "more" ? "bad" : "neutral", text: `At today's price of ${money(price, cur)}, the market is pricing in revenue growth of about ${pct(ig)} a year for ${years}, holding the rest of your ${sc} case.${past}` });
       head = v === "slower" ? { headline: "Priced for slower growth than it has delivered", accent: "slower growth", tone: "good" }
         : v === "more" ? { headline: "Priced for more growth than it has delivered", accent: "more growth", tone: "bad" }
@@ -135,12 +137,12 @@ export function storyFor({ data, inp, R, MC, ret, health, calls }: StoryInput): 
       points.push({ key: "range", tone: band(MC.probAbove, STORY_RULES.mcBad, STORY_RULES.mcGood), text: `Across ${MC.n.toLocaleString("en-US")} simulated futures around your ${sc} case, the middle 80% of values runs from ${money(MC.p10, cur)} to ${money(MC.p90, cur)} a share, and ${pct(MC.probAbove, 0)} of them are worth more than today's price.` });
     }
   } else {
-    // Banks and insurers: multiples against peers, and what the equity earns against what it costs.
+    // Financial firms: multiples against peers, and what the equity earns against what it costs.
     const n = R.peers.filter((p) => p.included).length;
     const rel = (k: "pe" | "pb") => (fin(R.subject[k]) && fin(R.stats[k].med) && R.stats[k].med > 0 ? R.subject[k] / R.stats[k].med - 1 : NaN);
     const peerPoint = (k: "pe" | "pb", what: string, unit: string) => {
       const d = rel(k);
-      if (!fin(R.subject[k])) return { key: k, tone: "bad" as Tone, text: `${what} is zero or negative, so a ${unit} can't be calculated.` };
+      if (!fin(R.subject[k])) return { key: k, tone: "bad" as Tone, text: `${what} ${/s$/.test(what) ? "are" : "is"} zero or negative, so a ${unit} can't be calculated.` };
       if (!fin(d)) return { key: k, tone: "neutral" as Tone, text: `${name} trades at ${mult(R.subject[k])} ${what.toLowerCase()}; there is no peer median to compare with.` };
       const inLine = Math.abs(d) <= STORY_RULES.peers;
       return { key: k, tone: (inLine ? "neutral" : d < 0 ? "good" : "bad") as Tone, text: `At ${mult(R.subject[k])} ${what.toLowerCase()}, ${name} trades ${inLine ? "roughly in line with" : `${pct(Math.abs(d), 0)} ${d < 0 ? "below" : "above"}`} the median of ${n} peer${n === 1 ? "" : "s"} (${mult(R.stats[k].med)}).` };
@@ -164,16 +166,21 @@ export function storyFor({ data, inp, R, MC, ret, health, calls }: StoryInput): 
       points.push({ key: "roe", tone: Math.abs(gap) <= STORY_RULES.roe ? "neutral" : gap > 0 ? "good" : "bad", text: `Return on equity was ${pct(roe)} in ${fy ?? "the last reported year"}, ${Math.abs(gap) <= STORY_RULES.roe ? "about the same as" : gap > 0 ? "above" : "below"} the ${pct(R.ke)} a year shareholders require (the cost of equity).${rule}` });
     }
     const ey = ret?.earningsYield ?? (price > 0 && fin(data.ttm.eps) ? data.ttm.eps / price : null), bond = ret?.bondYield ?? inp.rate.rf / 100;
-    if (fin(ey) && fin(bond)) {
+    if (fin(ey) && fin(bond) && ey > 0) {
       const per = `per ${UNIT[cur] ?? "unit of currency"} of price`;
       points.push({ key: "yield", tone: ey >= bond ? "good" : "neutral", text: `Earnings yield is ${pct(ey)} (trailing earnings ÷ price) against ${pct(bond)} on a 10-year government bond: ${ey >= bond ? `more profit ${per} than the bond pays, though profits are less certain than interest` : `less profit ${per} than the bond pays, so the price counts on earnings growing`}.` });
+    } else if (fin(ey) && ey <= 0) {
+      points.push({ key: "yield", tone: "bad", text: "Trailing earnings are a loss, so there is no earnings yield to set against the bond: the price rests on a recovery." });
     }
   }
 
   // 6. business health, when the health check ran
   if (health && health.grade !== "–" && health.summary) {
-    const tone: Tone = health.grade === "A" || health.grade === "B" ? "good" : health.grade === "D" || health.grade === "E" ? "bad" : "neutral";
-    points.push({ key: "health", tone, text: `Business health grade ${health.grade}${fin(health.score) ? ` (${Math.round(health.score)} out of 100)` : ""}: ${health.summary.replace(/\s+$/, "")}${/[.!?]$/.test(health.summary.trim()) ? "" : "."}` });
+    // "good" only when the grade is high and the red flags don't outnumber the strengths
+    const high = health.grade === "A" || health.grade === "B";
+    const tone: Tone = high && (health.flags?.length ?? 0) < Math.max(1, health.strengths?.length ?? 0) ? "good" : health.grade === "D" || health.grade === "E" ? "bad" : "neutral";
+    const body = (health.verdict || health.summary.replace(/^Grade [A-E] \(\d+\/100\):\s*/, "")).trim().replace(/[.!?]$/, "");
+    points.push({ key: "health", tone, text: `Business health grade ${health.grade}${fin(health.score) ? ` (${Math.round(health.score)} out of 100)` : ""}: ${body.charAt(0).toLowerCase() + body.slice(1)}.` });
   }
 
   return { ...head, points: points.slice(0, 6) };

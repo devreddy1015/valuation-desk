@@ -9,15 +9,25 @@ import { DataError, getPeers, getStockData } from "@/lib/server/yahoo";
 
 type Props = { params: Promise<{ symbol: string }> };
 
+const TICKER = /^[A-Z0-9^.\-=&]{1,24}$/;
+/** The path segment as a symbol, or "" when it can't be one (a stray "%" makes decodeURIComponent throw). */
+function symbolFrom(raw: string): string {
+  try { return decodeURIComponent(raw).trim().toUpperCase(); } catch { return ""; }
+}
+
+// The title only ever repeats what Yahoo returned, never the address: otherwise any text typed into a
+// /stock/... link would show up as the page title and the link preview under the site's name.
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
-  const { symbol } = await params;
-  return { title: decodeURIComponent(symbol).toUpperCase() };
+  const symbol = symbolFrom((await params).symbol);
+  const d = TICKER.test(symbol) ? await getStockData(symbol).catch(() => null) : null;
+  if (!d) return { title: "Stock not found", robots: { index: false } };
+  return { title: `${d.name} (${d.symbol})`, description: `Value ${d.name} with a DCF, peers, a business health check and a plain-English summary. Educational model, not investment advice.` };
 }
 
 type Loaded = { ok: true; data: Awaited<ReturnType<typeof getStockData>>; peers: Awaited<ReturnType<typeof getPeers>>; now: number } | { ok: false; title: string; body: string };
 
 async function load(symbol: string): Promise<Loaded> {
-  if (!/^[A-Z0-9^.\-=&]{1,24}$/.test(symbol)) return { ok: false, title: "That is not a ticker", body: `"${symbol}" doesn't look like a stock symbol. Search by company name instead.` };
+  if (!TICKER.test(symbol)) return { ok: false, title: "That is not a ticker", body: "That address doesn't contain a stock symbol. Search by company name instead." };
   try {
     const data = await getStockData(symbol);
     const peers = await getPeers(data.symbol, data.industry, data.sector).catch(() => []);
@@ -34,7 +44,7 @@ async function load(symbol: string): Promise<Loaded> {
 async function StockContent({ params }: Props) {
   const { symbol: raw } = await params;
   await connection();
-  const r = await load(decodeURIComponent(raw).trim().toUpperCase());
+  const r = await load(symbolFrom(raw));
   if (!r.ok) return <Problem title={r.title} body={r.body} />;
   return <Desk data={r.data} peers={r.peers} now={r.now} />;
 }

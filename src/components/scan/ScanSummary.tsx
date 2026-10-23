@@ -14,7 +14,7 @@ export default function ScanSummary({ s }: { s: Summary }) {
       <div className="mini">
         <span className="k">Gap above +15%</span>
         <span className="v">{s.above15}</span>
-        <span className="n">of {s.valued} valued: model value well above price</span>
+        <span className="n">of {s.valued} valued: value estimate well above price</span>
       </div>
       <div className="mini">
         <span className="k">Health A or B</span>

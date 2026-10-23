@@ -98,8 +98,7 @@ a { color: inherit; }
   .topbar { position: static; }
   .topbar .wrap { flex-wrap: wrap; height: auto; padding-block: 8px; row-gap: 8px; }
   .top-search { order: 3; width: 100%; }
-  .nav { order: 4; width: 100%; margin: 0 -4px; overflow-x: auto; scrollbar-width: none; }
-  .nav::-webkit-scrollbar { display: none; }
+  .nav { order: 4; width: 100%; margin: 0 -4px; flex-wrap: wrap; row-gap: 2px; }
 }
 
 .btn { display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--line-2); background: var(--card); color: var(--ink); border-radius: 10px; padding: 7px 12px; font: inherit; font-size: 14px; font-weight: 500; cursor: pointer; text-decoration: none; white-space: nowrap; }
@@ -120,7 +119,9 @@ a { color: inherit; }
 .section-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 6px 16px; }
 .section-head h2 { font-size: 18px; font-weight: 600; letter-spacing: -0.01em; }
 .section-head p { color: var(--ink-2); font-size: 14px; max-width: 72ch; }
-.scroll { overflow-x: auto; }
+/* position: relative makes the scroll box the containing block of visually hidden (absolute) labels
+   inside wide tables; without it they escape the box and widen the whole page on phones */
+.scroll { overflow-x: auto; position: relative; }
 
 /* hero */
 .hero { position: relative; padding-block: 72px 48px; overflow: hidden; }
@@ -306,12 +307,27 @@ table.data tbody tr:hover td { background: color-mix(in oklab, var(--accent-wash
 
 /* print: a clean client report */
 @media print {
-  :root { --bg: #fff; --card: #fff; --ink: #000; --ink-2: #222; --muted: #444; --line: #ccc; --line-2: #999; --shadow: none; }
+  /* the light palette on paper, whatever the screen theme (these selectors outrank the dark-theme ones) */
+  :root, :root:not([data-theme="light"]), :root[data-theme="dark"] {
+    --bg: #fff; --bg-raise: #f3f4f6; --card: #fff; --ink: #000; --ink-2: #222; --muted: #444; --line: #ccc; --line-2: #999; --grid: #e6e9ef;
+    --accent: #2348d6; --accent-ink: #fff; --accent-soft: #4a6cf0; --accent-wash: rgba(35, 72, 214, 0.08);
+    --s1: #2a78d6; --s1-soft: #86b6ef; --s2: #eb6834; --s3: #1baf7a; --neutral-mark: #a3abb6;
+    --good: #0a7a3c; --good-wash: rgba(10, 122, 60, 0.1); --bad: #b42727; --bad-wash: rgba(180, 39, 39, 0.09); --warn: #8a5a00; --warn-wash: rgba(242, 179, 61, 0.18);
+    --div-mid: #e9ecf1; --div-pos: #2a78d6; --div-neg: #e34948; --tip-bg: #0b0e14; --tip-ink: #f3f5f9; --shadow: none;
+    color-scheme: light;
+  }
   .topbar, .rail, .desk-actions, .no-print, .foot .no-print, details.tableview, .mc-controls, .skip { display: none !important; }
   .layout { grid-template-columns: 1fr; padding: 0; }
   .card { break-inside: avoid; box-shadow: none; }
   body { font-size: 12px; }
   .print-only { display: block !important; }
+  /* bars and swatches drawn as backgrounds would print blank */
+  .key-box, .key-line, .key-dot, .ins-bars .track i, .ins-stack i, .pf-bar-track, .pf-bar-fill, .heat td, .badge, .pill { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  /* wide tables print whole instead of clipped inside a scroll box */
+  .scroll { overflow: visible !important; }
+  table.data td, table.data th { white-space: normal !important; }
+  /* closed explainers would print as stray links */
+  details:not([open]) { display: none !important; }
 }
 .print-only { display: none; }
 

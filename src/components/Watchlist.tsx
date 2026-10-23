@@ -44,7 +44,7 @@ export default function Watchlist() {
       </div>
       <div className="scroll">
         <table className="data">
-          <thead><tr>{head("name", "Company")}<th>Price</th><th>Target</th>{head("upside", "Upside")}{settings.calls && <th>Call</th>}{head("viewed", "Last viewed")}<th><span className="sr-only">Remove</span></th></tr></thead>
+          <thead><tr>{head("name", "Company")}<th>Price</th><th>{settings.calls ? "Target" : "Value"}</th>{head("upside", "Upside")}{settings.calls && <th>Call</th>}{head("viewed", "Last viewed")}<th><span className="sr-only">Remove</span></th></tr></thead>
           <tbody>
             {rows.map((w) => (
               <tr key={w.symbol}>

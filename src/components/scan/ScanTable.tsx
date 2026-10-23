@@ -8,17 +8,17 @@ const fin = (x: unknown): x is number => typeof x === "number" && Number.isFinit
 const pp = (x: number | null) => (fin(x) ? `${x.toFixed(1)}%` : "–");
 
 const LABEL: Record<SortKey, string> = {
-  name: "company", group: "group", price: "price", modelValue: "model value", valueGap: "value gap",
+  name: "company", group: "group", price: "price", modelValue: "value estimate", valueGap: "value gap",
   expectedReturn: "expected return", expectationsGap: "growth the price implies against history", pe: "P/E", health: "health grade", flags: "number of flags",
 };
 // Text columns start A to Z; numbers start with the largest, except the expectations gap, where the
 // interesting end is the most negative (the price assumes far less growth than the record).
 const firstDir = (k: SortKey): 1 | -1 => (k === "name" || k === "group" || k === "expectationsGap" ? 1 : -1);
 
-/** How the model value was built, e.g. "DCF + 6 industry peers". */
+/** How the value estimate was built, e.g. "DCF + 6 industry peers". */
 function method(r: Scored): string {
   const { basis, n } = r.peers;
-  const peers = basis === "list" ? `${n} peers from the list` : `${n} ${basis} peers`;
+  const peers = basis === "list" ? `${n} peers from the list` : basis === "family" ? `${n} similar financial firms` : `${n} ${basis} peers`;
   if (r.method === "dcf+peers") return `DCF + ${peers}`;
   if (r.method === "dcf") return "DCF only";
   if (r.method === "peers") return r.financial ? `P/E, P/B vs ${peers}` : peers;
@@ -49,7 +49,7 @@ export default function ScanTable({ rows, sort, onSort, calls }: { rows: Scored[
             {th("name", "Company")}
             {th("group", "Group", "left")}
             {th("price", "Price")}
-            {th("modelValue", "Model value")}
+            {th("modelValue", "Value estimate")}
             {th("valueGap", "Gap")}
             {th("expectedReturn", "Return / yr vs WACC")}
             {th("expectationsGap", "Price implies vs history")}
@@ -70,13 +70,13 @@ export default function ScanTable({ rows, sort, onSort, calls }: { rows: Scored[
 
 function ScanRowView({ r, calls }: { r: Scored; calls: boolean }) {
   const cur = r.currency;
-  const call = calls ? callFor(r.valueGap) : null;
+  const call = calls ? callFor(r.valueGap, r.extreme) : null;
   const ungraded = r.health.grade === "–";
   return (
     <tr>
       <td className="co">
         <Link href={`/stock/${encodeURIComponent(r.symbol)}`}>{r.name}</Link>
-        <span className="sub mono">{r.symbol}{r.financial ? " · bank or insurer" : ""}</span>
+        <span className="sub mono">{r.symbol}{r.financial ? " · financial firm" : ""}</span>
       </td>
       <td className="left grp">{r.group}</td>
       <td>{money(r.price, cur)}</td>
@@ -109,7 +109,7 @@ function ScanRowView({ r, calls }: { r: Scored; calls: boolean }) {
           </details>
         ) : <span className="muted">None</span>}
       </td>
-      {calls && <td>{call ? <span className={`pill ${call}`}>{call}</span> : <span className="muted">–</span>}</td>}
+      {calls && <td>{call ? <span className={`pill ${call}`}>{call}</span> : r.extreme ? <span className="muted">Check first</span> : <span className="muted">–</span>}</td>}
     </tr>
   );
 }

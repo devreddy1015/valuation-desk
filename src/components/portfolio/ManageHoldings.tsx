@@ -1,17 +1,21 @@
 "use client";
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import SymbolPicker, { type PickHit } from "@/components/SymbolPicker";
-import { FORMAT_LABEL, MAX_HOLDINGS, parseHoldings, parseNumber, type Exchange, type ImportResult, type Lot } from "@/lib/portfolio";
+import { FORMAT_LABEL, MAX_HOLDINGS, parseHoldings, parseNumber, type Exchange, type ImportResult, type Lot, type MergeMode } from "@/lib/portfolio";
 import { num } from "@/lib/format";
 
 /** Add one holding through search, or import many from a pasted list or a broker's CSV file. */
-export default function ManageHoldings({ count, onAdd, onImport }: {
+export default function ManageHoldings({ count, held, onAdd, onImport }: {
   count: number;
+  held: string[]; // symbols already in the portfolio
   onAdd: (lot: Lot) => void;
-  onImport: (lots: Lot[], mode: "add" | "replace") => void;
+  onImport: (lots: Lot[], mode: MergeMode) => void;
 }) {
   const id = useId();
   const [picked, setPicked] = useState<PickHit | null>(null);
+  const [changed, setChanged] = useState(false); // "Change" was pressed: the search box takes focus again
+  const qtyInput = useRef<HTMLInputElement>(null);
+  useEffect(() => { if (picked) qtyInput.current?.focus(); }, [picked]);
   const [qty, setQty] = useState("");
   const [cost, setCost] = useState("");
   const [addErr, setAddErr] = useState("");
@@ -27,7 +31,7 @@ export default function ManageHoldings({ count, onAdd, onImport }: {
     const c = cost.trim() ? parseNumber(cost) : undefined;
     if (c !== undefined && (c === null || !(c > 0))) { setAddErr("Enter an average cost above zero, or leave it empty."); return; }
     onAdd({ symbol: picked.symbol.toUpperCase(), qty: q, ...(c ? { avgCost: c } : {}) });
-    setPicked(null); setQty(""); setCost(""); setAddErr("");
+    setPicked(null); setChanged(true); setQty(""); setCost(""); setAddErr("");
   };
 
   const readFile = (f: File | undefined) => {
@@ -51,11 +55,11 @@ export default function ManageHoldings({ count, onAdd, onImport }: {
           {picked ? (
             <div className="pf-picked">
               <span><b>{picked.name}</b> <span className="mono small muted">{picked.symbol}{picked.exchange ? ` · ${picked.exchange}` : ""}</span></span>
-              <button type="button" className="btn small ghost" onClick={() => setPicked(null)}>Change</button>
+              <button type="button" className="btn small ghost" onClick={() => { setPicked(null); setChanged(true); }}>Change</button>
             </div>
-          ) : <SymbolPicker onPick={(h) => { setPicked(h); setAddErr(""); }} />}
+          ) : <SymbolPicker autoFocus={changed} onPick={(h) => { setPicked(h); setAddErr(""); }} />}
           <div className="pf-fields">
-            <label>Quantity<input className="in" inputMode="decimal" value={qty} onChange={(e) => { setQty(e.target.value); setAddErr(""); }} onKeyDown={(e) => e.key === "Enter" && add()} /></label>
+            <label>Quantity<input ref={qtyInput} className="in" inputMode="decimal" value={qty} onChange={(e) => { setQty(e.target.value); setAddErr(""); }} onKeyDown={(e) => e.key === "Enter" && add()} /></label>
             <label>Average cost per share<small>optional, in the stock&apos;s currency</small><input className="in" inputMode="decimal" value={cost} onChange={(e) => { setCost(e.target.value); setAddErr(""); }} onKeyDown={(e) => e.key === "Enter" && add()} /></label>
           </div>
           <div className="pf-actions">
@@ -102,12 +106,23 @@ export default function ManageHoldings({ count, onAdd, onImport }: {
                 </details>
               )}
               {preview.notes.length > 0 && <ul className="pf-notes">{preview.notes.map((n) => <li key={n}>{n}</li>)}</ul>}
-              {preview.lots.length > 0 && (
-                <div className="pf-actions">
-                  <button type="button" className="btn primary" onClick={() => { onImport(preview.lots, "add"); setPreview(null); setText(""); setFileMsg(""); }}>{count ? "Add to my holdings" : "Use these holdings"}</button>
-                  {count > 0 && <button type="button" className="btn" onClick={() => { onImport(preview.lots, "replace"); setPreview(null); setText(""); setFileMsg(""); }}>Replace my {count} holding{count === 1 ? "" : "s"}</button>}
-                </div>
-              )}
+              {preview.lots.length > 0 && (() => {
+                const overlap = preview.lots.filter((l) => held.includes(l.symbol)).length;
+                const done = (mode: MergeMode) => { onImport(preview.lots, mode); setPreview(null); setText(""); setFileMsg(""); };
+                if (!count) return <div className="pf-actions"><button type="button" className="btn primary" onClick={() => done("add")}>Use these holdings</button></div>;
+                return (
+                  <>
+                    {overlap > 0 && <p className="small"><b>{overlap} of these {overlap === 1 ? "is" : "are"} already in your holdings.</b> A broker file is a snapshot, so updating sets those quantities to the file&apos;s; adding on top would count them twice.</p>}
+                    <div className="pf-actions">
+                      {overlap > 0
+                        ? <><button type="button" className="btn primary" onClick={() => done("update")}>Update to these quantities</button>
+                            <button type="button" className="btn" onClick={() => done("add")}>Add on top</button></>
+                        : <button type="button" className="btn primary" onClick={() => done("add")}>Add to my holdings</button>}
+                      <button type="button" className="btn" onClick={() => done("replace")}>Replace all {count} holding{count === 1 ? "" : "s"}</button>
+                    </div>
+                  </>
+                );
+              })()}
             </div>
           )}
         </div>

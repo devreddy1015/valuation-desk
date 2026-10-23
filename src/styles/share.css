@@ -4,3 +4,4 @@
 .shared-banner { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; border: 1px solid var(--accent); background: var(--accent-wash); border-radius: 12px; padding: 12px 14px; margin-bottom: 12px; font-size: 14px; }
 .shared-banner p { max-width: 80ch; }
 .shared-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.hero-stat .hero-check { color: var(--warn); }

@@ -38,18 +38,18 @@ export default function Summary({ x }: { x: Xray }) {
           n={pnl === null ? "Add your average costs to see this" : `${pct(x.cost.pnlPct, 1, true)} on ${x.cost.n} holding${x.cost.n === 1 ? "" : "s"} with a cost`} />
         <Mini k="Effective holdings" v={num(c.effectiveN, 1)} n={c.effectiveN === null ? "–" : `Spreads risk like ${num(c.effectiveN, 1)} equal holdings`} />
         <Mini k="Largest holding" v={pct(c.top?.weight, 0)} n={c.top ? `${c.top.name}${x.valued > 5 ? ` · top 5: ${pct(c.top5, 0)}` : ""}` : "–"} />
-        <Mini k="Model value gap" v={pct(x.gap.value, 0, true)} n={`DCF vs price · ${covers(x.gap)}`} />
+        <Mini k="DCF value gap" v={pct(x.gap.value, 0, true)} n={`DCF value vs price · ${covers(x.gap)}`} />
         <Mini k="Expected return" v={x.expectedReturn.value === null ? "–" : `${pct(x.expectedReturn.value, 1)} a yr`} n={`${x.wacc.value !== null ? `vs ${pct(x.wacc.value, 1)} required · ` : ""}${covers(x.expectedReturn)}`} />
         <Mini k="Expectations gap" v={x.expGap.value === null ? "–" : `${signed(x.expGap.value, (a) => num(a, 1))} pts`} n={`Implied minus delivered growth · ${covers(x.expGap)}`} />
         <Mini k="Business health" v={x.health.value === null ? "–" : `${Math.round(x.health.value)}/100`} n={x.health.n ? `${pct(x.weakHealth, 0)} of value graded D or E · ${covers(x.health)}` : "Not available for these holdings"} />
       </div>
-      {x.financials.length > 0 && <p className="note">Banks and insurers ({x.financials.join(", ")}) are left out of the model value gap, expected return and expectations gap: a free-cash-flow DCF does not suit lenders, whose debt is their raw material.</p>}
+      {x.financials.length > 0 && <p className="note">Financial firms ({x.financials.join(", ")}) are left out of the DCF value gap, expected return and expectations gap: a free-cash-flow DCF does not suit lenders, insurers or holding companies, whose debt is raw material.</p>}
       <details className="pf-explain">
         <summary>What these numbers mean</summary>
         <dl>
           <dt>Unrealised P&amp;L</dt><dd>Today&apos;s value minus what you paid, for holdings where you entered an average cost. For holdings in another currency the cost is converted at today&apos;s rate, so this shows the share price move, not currency gains or losses.</dd>
           <dt>Effective holdings</dt><dd>One divided by the sum of squared weights (the inverse Herfindahl index). Ten equal holdings score 10; one stock at 90% scores close to 1. It is how many independent bets the portfolio really makes.</dd>
-          <dt>Model value gap</dt><dd>The DCF value of the holdings the model can value, against what they cost on the market today, minus one. Positive means the default assumptions value them above today&apos;s price. Assumptions can be wrong: open a stock to change them.</dd>
+          <dt>DCF value gap</dt><dd>The DCF value of the holdings the model can value, against what they cost on the market today, minus one. Positive means the default assumptions value them above today&apos;s price. It is the DCF alone, so it differs from a stock page&apos;s value estimate, which also weighs peers. A DCF value more than three times, or under a third of, the price is left out as likely bad data. Assumptions can be wrong: open a stock to change them.</dd>
           <dt>Expected return</dt><dd>The yearly return at which each company&apos;s base-case cash flows are worth exactly today&apos;s price (an internal rate of return). &quot;Required&quot; is their value-weighted cost of capital (WACC), the return investors need for the risk.</dd>
           <dt>Expectations gap</dt><dd>Revenue growth that today&apos;s price implies (a reverse DCF) minus the growth the company actually reported, in percentage points. A big positive gap means the market expects much more than the record shows.</dd>
           <dt>Business health</dt><dd>Each company&apos;s 0 to 100 health score from tests on its reported accounts (profitability, balance sheet strength and accounting red flags), weighted by value.</dd>

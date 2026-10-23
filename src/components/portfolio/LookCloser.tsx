@@ -9,6 +9,7 @@ const KIND: Record<ObservationKind, { label: string; cls: string }> = {
   health: { label: "Health", cls: "bad" },
   expectations: { label: "Expectations", cls: "bad" },
   cost: { label: "Check data", cls: "skip" },
+  check: { label: "Check data", cls: "skip" },
 };
 
 /** Observations worth a second look, each with its numbers and a link to the stock. Not advice. */

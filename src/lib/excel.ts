@@ -166,7 +166,7 @@ export async function buildWorkbook(data: StockData, inputs: UserInputs, peers: 
     H.forEach((y, i) => { const v = get(y); hs.input(at(yc(i), r), fin(v) ? v / D : null, AM); });
   }
   hs.head(16, ["Ratios (formulas)"], avgC);
-  const ratio = (r: number, label: string, from: number, cell: (c: number) => string, val: (i: number) => number | null, fmt = PCT) => {
+  const ratio = (r: number, label: string, from: number, cell: (c: number) => string, val: (i: number) => number | null, fmt = PCT, avg?: { formula: string; result: number }) => {
     hs.text(at(2, r), label);
     const vals: number[] = [];
     for (let i = from; i < nY; i++) {
@@ -175,7 +175,8 @@ export async function buildWorkbook(data: StockData, inputs: UserInputs, peers: 
       hs.f(at(yc(i), r), cell(yc(i)), fin(v) ? v : "", fmt);
     }
     const mean = vals.length ? vals.reduce((s, x) => s + x, 0) / vals.length : NaN;
-    hs.f(at(avgC, r), `IFERROR(AVERAGE(${at(yc(0), r)}:${at(lastC, r)}),"n/a")`, t(mean), fmt);
+    if (avg) hs.f(at(avgC, r), avg.formula, t(avg.result), fmt);
+    else hs.f(at(avgC, r), `IFERROR(AVERAGE(${at(yc(0), r)}:${at(lastC, r)}),"n/a")`, t(mean), fmt);
   };
   const P = (c: number, r: number) => at(c - 1, r), Q = at;
   ratio(HR.growth, "Revenue growth", 1, (c) => `IF(${P(c, HR.rev)}>0,${Q(c, HR.rev)}/${P(c, HR.rev)}-1,"")`, (i) => (H[i - 1].revenue > 0 ? H[i].revenue / H[i - 1].revenue - 1 : null));
@@ -183,7 +184,11 @@ export async function buildWorkbook(data: StockData, inputs: UserInputs, peers: 
   ratio(HR.taxRate, "Tax rate (tax ÷ profit before tax)", 0, (c) => `IF(${Q(c, HR.pbt)}>0,${Q(c, HR.tax)}/${Q(c, HR.pbt)},"")`, (i) => (H[i].pbt > 0 ? H[i].tax / H[i].pbt : null));
   ratio(HR.daPct, "D&A, % of revenue", 0, (c) => `IF(${Q(c, HR.rev)}>0,${Q(c, HR.da)}/${Q(c, HR.rev)},"")`, (i) => (H[i].revenue > 0 ? H[i].da / H[i].revenue : null));
   ratio(HR.capexPct, "Capex, % of revenue", 0, (c) => `IF(${Q(c, HR.rev)}>0,${Q(c, HR.capex)}/${Q(c, HR.rev)},"")`, (i) => (H[i].revenue > 0 ? H[i].capex / H[i].revenue : null));
-  ratio(HR.wcPct, "Working capital, % of revenue change", 1, (c) => `IF(${Q(c, HR.rev)}-${P(c, HR.rev)}>0,${Q(c, HR.wc)}/(${Q(c, HR.rev)}-${P(c, HR.rev)}),"")`, (i) => (H[i].revenue - H[i - 1].revenue > 0 ? H[i].wcInc / (H[i].revenue - H[i - 1].revenue) : null));
+  // the average is pooled (total working capital ÷ total revenue change) over years with 3%+ growth, as in the model
+  const revT = `${at(yc(1), HR.rev)}:${at(lastC, HR.rev)}`, revP = `${at(yc(0), HR.rev)}:${at(lastC - 1, HR.rev)}`, wcT = `${at(yc(1), HR.wc)}:${at(lastC, HR.wc)}`;
+  const grew = `((${revT})-(${revP})>=0.03*(${revP}))*((${revP})>0)`;
+  ratio(HR.wcPct, "Working capital, % of revenue change (average pooled over years with 3%+ growth)", 1, (c) => `IF(${Q(c, HR.rev)}-${P(c, HR.rev)}>0,${Q(c, HR.wc)}/(${Q(c, HR.rev)}-${P(c, HR.rev)}),"")`, (i) => (H[i].revenue - H[i - 1].revenue > 0 ? H[i].wcInc / (H[i].revenue - H[i - 1].revenue) : null), PCT,
+    { formula: `IFERROR(SUMPRODUCT(${grew}*(${wcT}))/SUMPRODUCT(${grew}*((${revT})-(${revP}))),"n/a")`, result: R.H.wc });
   ratio(HR.net, "Net margin", 0, (c) => `IF(${Q(c, HR.rev)}>0,${Q(c, HR.ni)}/${Q(c, HR.rev)},"")`, (i) => (H[i].revenue > 0 ? H[i].netIncome / H[i].revenue : null));
   ratio(HR.conv, "Cash conversion (cash from operations ÷ net income)", 0, (c) => `IF(AND(ISNUMBER(${Q(c, HR.cfo)}),${Q(c, HR.ni)}>0),${Q(c, HR.cfo)}/${Q(c, HR.ni)},"")`, (i) => (fin(H[i].cfo) && H[i].netIncome > 0 ? (H[i].cfo as number) / H[i].netIncome : null), "0.00");
   hs.head(26, [`Balance sheet bridge, ${dateLabel(data.bridge.date)}`], avgC);
@@ -195,10 +200,10 @@ export async function buildWorkbook(data: StockData, inputs: UserInputs, peers: 
   ([[HR.ttmRev, "Revenue, trailing 12 months", data.ttm.revenue / D, AM], [HR.ttmEbitda, "EBITDA, trailing 12 months", data.ttm.ebitda / D, AM], [HR.ttmNi, "Net income, trailing 12 months", data.ttm.netIncome / D, AM],
     [HR.eps, `Earnings per share, trailing 12 months (${cur})`, data.ttm.eps, PS], [HR.bvps, `Book value per share (${cur})`, data.bookValuePerShare, PS], [HR.mcap, "Market cap as reported by the exchange feed", data.marketCap / D, AM]] as const)
     .forEach(([r, label, v, fmt]) => { hs.text(at(2, r), label); hs.input(at(3, r), v, fmt); });
-  hs.text(at(2, HR.netCash), "Net cash used for EV multiples (cash − borrowings − leases)");
-  const netCash = data.compsNetCash ?? B.cash - B.borrowings - B.leases;
+  hs.text(at(2, HR.netCash), "Net cash used for EV multiples (cash − borrowings − leases − minority interests)");
+  const netCash = data.compsNetCash ?? B.cash - B.borrowings - B.leases - B.nci;
   if (data.compsNetCash !== undefined) { hs.input(at(3, HR.netCash), data.compsNetCash / D, AM); hs.text(at(4, HR.netCash), "from the latest quarterly balance sheet", { note: true }); }
-  else hs.f(at(3, HR.netCash), `${at(3, HR.cash)}-${at(3, HR.borr)}-${at(3, HR.lease)}`, netCash / D, AM);
+  else hs.f(at(3, HR.netCash), `${at(3, HR.cash)}-${at(3, HR.borr)}-${at(3, HR.lease)}-${at(3, HR.nci)}`, netCash / D, AM);
   if (data.fxNote) hs.text("B42", data.fxNote, { note: true });
   const hRef = (c: number, r: number) => hs.ref(ab(c, r));
 
@@ -225,7 +230,7 @@ export async function buildWorkbook(data: StockData, inputs: UserInputs, peers: 
   ];
   for (const [r, label, v, fmt, note] of rateRows) { ip.text(at(2, r), label); ip.input(at(3, r), v, fmt); ip.text(at(4, r), note, { note: true }); }
   ip.head(16, ["Result rules"]);
-  ip.text(at(2, I.w), "DCF weight in the value estimate"); ip.input(at(3, I.w), pc(inputs.dcfWeight), "0%"); ip.text(at(4, I.w), data.financial ? "0% for a bank or insurer: peers get the rest" : "peers get the rest", { note: true });
+  ip.text(at(2, I.w), "DCF weight in the value estimate"); ip.input(at(3, I.w), pc(inputs.dcfWeight), "0%"); ip.text(at(4, I.w), data.financial ? "0% for a financial firm: peers get the rest" : "peers get the rest", { note: true });
   ip.text(at(2, I.buy), "BUY if upside is above"); ip.input(at(3, I.buy), pc(inputs.buy), PCT);
   ip.text(at(2, I.sell), "SELL if upside is below"); ip.input(at(3, I.sell), pc(inputs.sell), PCT);
   ip.text(at(4, I.buy), calls ? "thresholds for the model call on Summary" : "used only when calls are on in Valuation Desk", { note: true });
@@ -324,7 +329,7 @@ export async function buildWorkbook(data: StockData, inputs: UserInputs, peers: 
     [DR.vps, `Value per share (${cur})`, `${at(3, DR.equity)}/${at(3, DR.shares)}`, n(L.vps), PS],
   ];
   for (const [r, label, formula, res, fmt] of vrows) { dc.text(at(2, r), label, { bold: r === DR.ev || r === DR.equity || r === DR.vps }); dc.f(at(3, r), formula, res, fmt); }
-  if (data.financial) dc.text("B53", "A bank or insurer: debt is raw material rather than financing, so this DCF is shown for learning and carries 0% weight by default.", { note: true });
+  if (data.financial) dc.text("B53", "A financial firm (lender, insurer or holding company): debt is raw material rather than financing, so this DCF is shown for learning and carries 0% weight by default.", { note: true });
 
   // ---------- Scenarios ----------
   const SR = { first: 5, pw: 8, block: { bear: 11, base: 27, bull: 43 } as Record<ScenarioKey, number>, rev: 62 };
@@ -585,7 +590,7 @@ export async function buildWorkbook(data: StockData, inputs: UserInputs, peers: 
   const notes = [
     "Educational model, not investment advice.",
     "Market data comes from Yahoo Finance through the open-source yahoo-finance2 library: it is unofficial, delayed, can be wrong or missing, and is not licensed for commercial use. Check every number against the company's filings.",
-    ...(data.financial ? ["A bank or insurer: a free-cash-flow DCF doesn't describe a lender, so the DCF weight starts at 0% and the value uses peer P/E and P/B."] : []),
+    ...(data.financial ? ["A financial firm: a free-cash-flow DCF doesn't describe a lender, an insurer or a holding company, so the DCF weight starts at 0% and the value uses peer P/E and P/B."] : []),
     ...(calls ? ["Calls are model outputs for learning. In India, giving buy or sell recommendations to clients can require SEBI Research Analyst registration."] : []),
     ...data.warnings,
   ];

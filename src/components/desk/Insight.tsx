@@ -92,7 +92,7 @@ export function ReturnsPanel({ data, inp, R }: { data: StockData; inp: UserInput
   if (data.financial) {
     return (
       <section className="card section" aria-labelledby="ret-h">
-        <div className="section-head"><h2 id="ret-h">What the equity earns</h2><p>For a bank or insurer, debt is raw material rather than financing, so the expected return and earnings power value (both built on free cash flow to the firm) are not shown. What the equity earns against what shareholders require tells the same story.</p></div>
+        <div className="section-head"><h2 id="ret-h">What the equity earns</h2><p>For a lender, an insurer or an investment holding company, debt is raw material rather than financing, so the expected return and earnings power value (both built on free cash flow to the firm) are not shown. What the equity earns against what shareholders require tells the same story.</p></div>
         <Bars label="Return on equity against required returns" rows={[
           { key: "roe", label: "Return on equity", sub: `${ret.roeYear ?? "last year"} net income ÷ average equity`, value: ret.roe ?? null, color: "var(--s1)", na: "No equity figure on Yahoo" },
           { key: "ke", label: "Cost of equity", sub: "what shareholders require", value: ret.ke, color: "var(--neutral-mark)" },
@@ -149,7 +149,13 @@ export function ReturnsPanel({ data, inp, R }: { data: StockData; inp: UserInput
         <Mini k="10-year bond" v={pct(ret.bondYield)} n="interest a year" />
         <Mini k="Cost of equity" v={pct(ret.ke)} n="what shareholders require" />
       </div>
-      {fin(ret.earningsYield) && fin(ret.bondYield) && (
+      {fin(ret.earningsYield) && fin(ret.bondYield) && ret.earningsYield <= 0 && (
+        <div className="ins-verdict">
+          <ToneTag tone="bad" />
+          <p className="small">Trailing earnings are a loss, so there is no earnings yield to set against the bond: the price rests on a recovery.</p>
+        </div>
+      )}
+      {fin(ret.earningsYield) && fin(ret.bondYield) && ret.earningsYield > 0 && (
         <div className="ins-verdict">
           <ToneTag tone={ret.earningsYield >= ret.bondYield ? "good" : "neutral"} />
           <p className="small">{`Every ${money(100, cur, 0)} of share price buys ${money(ret.earningsYield * 100, cur)} of today's profit a year, `}{ret.earningsYield >= ret.bondYield
