@@ -47,11 +47,21 @@ export interface SearchHit { symbol: string; name: string; exchange: string; typ
 export interface QuoteLite { symbol: string; name: string; price: number; marketCap: number; changePct: number | null; currency: string }
 
 /**
- * Price, market value and today's move for many symbols: batches of 50 in parallel. Yahoo's quotes
- * leave out the market cap for some Indian companies when asked from outside India (Reliance and TCS
- * from Vercel's US servers), so for any symbol still without one, the company summary's market cap or
- * share count fills it in. Non-equities and symbols with no market value are dropped.
+ * Price, market value and today's move for many symbols: batches of 50 in parallel. Asked from outside
+ * India, Yahoo leaves the market cap and share count out of the quote and the company summary for some
+ * Indian companies (Reliance and TCS from Vercel's US servers), so for any symbol still without one the
+ * share count comes from the latest annual balance sheet. Non-equities and symbols with no market value
+ * are dropped.
  */
+/** Shares in issue from the latest annual balance sheet, for when the quote and summary leave them out. Cached for a day. */
+function statementShares(symbol: string): Promise<number | null> {
+  return cached(`shares:${symbol}`, DAY, async () => {
+    const rows: any[] = await retry(() => yf.fundamentalsTimeSeries(symbol, { period1: new Date(Date.now() - 3 * 365 * 864e5), type: "annual", module: "balance-sheet" }, MO));
+    const last = rows.filter((r) => pick(r, "ordinarySharesNumber", "shareIssued")).sort((x, y) => +new Date(x.date) - +new Date(y.date)).at(-1);
+    return last ? pick(last, "ordinarySharesNumber", "shareIssued") : null;
+  }).catch(() => null);
+}
+
 export async function quotesFor(symbols: string[]): Promise<QuoteLite[]> {
   const fields = ["symbol", "longName", "shortName", "regularMarketPrice", "marketCap", "sharesOutstanding", "regularMarketChangePercent", "currency", "quoteType"];
   const lite = (q: any): QuoteLite | null => {
@@ -70,10 +80,10 @@ export async function quotesFor(symbols: string[]): Promise<QuoteLite[]> {
   const missing = symbols.filter((s) => !got.has(s));
   for (let i = 0; i < missing.length; i += 4) {
     const again = await Promise.all(missing.slice(i, i + 4).map((s) =>
-      retry(() => yf.quoteSummary(s, { modules: ["price", "defaultKeyStatistics"] }, MO)).then((r: any) => lite({
+      retry(() => yf.quoteSummary(s, { modules: ["price", "defaultKeyStatistics"] }, MO)).then(async (r: any) => lite({
         symbol: s, quoteType: r?.price?.quoteType, currency: r?.price?.currency, longName: r?.price?.longName, shortName: r?.price?.shortName,
         regularMarketPrice: r?.price?.regularMarketPrice, regularMarketChangePercent: num(r?.price?.regularMarketChangePercent) !== null ? r.price.regularMarketChangePercent * 100 : null,
-        marketCap: r?.price?.marketCap, sharesOutstanding: r?.defaultKeyStatistics?.sharesOutstanding ?? r?.defaultKeyStatistics?.impliedSharesOutstanding,
+        marketCap: r?.price?.marketCap, sharesOutstanding: r?.defaultKeyStatistics?.sharesOutstanding ?? r?.defaultKeyStatistics?.impliedSharesOutstanding ?? await statementShares(s),
       })).catch(() => null)));
     for (const l of again) if (l) got.set(l.symbol, l);
   }
