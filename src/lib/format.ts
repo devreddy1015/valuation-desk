@@ -63,7 +63,7 @@ export function lakhCrore(v: number | null | undefined): string {
   return ok(v) ? `₹${(v / 1e12).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} lakh cr` : "–";
 }
 
-const CUR_SIGN: Record<string, string> = { USD: "$", GBP: "£", JPY: "¥", EUR: "€" };
+const CUR_SIGN: Record<string, string> = { USD: "$", GBP: "£", JPY: "¥", EUR: "€", CNY: "CN¥", HKD: "HK$" };
 /** A company's market value the way its market quotes it: lakh crore rupees in India, trillions or billions elsewhere. */
 export function marketValue(v: number | null | undefined, currency: string): string {
   if (!ok(v)) return "–";

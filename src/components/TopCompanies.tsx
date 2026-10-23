@@ -15,7 +15,7 @@ export default async function TopCompanies({ market = "india", n = 50, compact =
   if (!top) return <p className="muted">Market values are unavailable right now. Try again in a minute.</p>;
   const info = TOP_MARKETS[market];
   const total = top.companies.reduce((s, c) => s + c.marketCap, 0);
-  const local = (symbol: string) => symbol.replace(/\.(NS|L|T)$/, "");
+  const local = (symbol: string) => symbol.replace(/\.(NS|L|T|DE)$/, "");
   return (
     <>
       <div className="scroll">

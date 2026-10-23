@@ -74,7 +74,9 @@ export async function quotesFor(symbols: string[]): Promise<QuoteLite[]> {
   const batches: string[][] = [];
   for (let i = 0; i < symbols.length; i += 50) batches.push(symbols.slice(i, i + 50));
   const got = new Map<string, QuoteLite>();
-  const results = await Promise.all(batches.map((b) => retry(() => yf.quote(b, { fields }, MO)).catch(() => null)));
+  // validateResult: false, because one delisted symbol in a batch would otherwise fail the whole batch;
+  // lite() checks every field it uses
+  const results = await Promise.all(batches.map((b) => retry(() => yf.quote(b, { fields }, { ...MO, validateResult: false })).catch(() => null)));
   if (results.every((r) => r === null)) throw unavailable(`${symbols.length} symbols`);
   for (const rows of results) for (const q of (rows as any[] | null) ?? []) { const l = lite(q); if (l) got.set(l.symbol, l); }
   const missing = symbols.filter((s) => !got.has(s));

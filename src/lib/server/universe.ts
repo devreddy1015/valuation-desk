@@ -7,8 +7,8 @@ import type { Universe, UniverseInfo, UniverseMember } from "../scanTypes";
 // Lists of stocks the scanner can rank. NSE indices come from NSE's own constituent files
 // (refreshed daily); the Dow is a short hard-coded list because it changes only now and then.
 
-export type UniverseFamily = "India · broad market" | "India · sectors" | "India · themes" | "United States" | "United Kingdom" | "Japan";
-export const FAMILIES: UniverseFamily[] = ["India · broad market", "India · sectors", "India · themes", "United States", "United Kingdom", "Japan"];
+export type UniverseFamily = "India · broad market" | "India · sectors" | "India · themes" | "United States" | "United Kingdom" | "Japan" | "Germany" | "China";
+export const FAMILIES: UniverseFamily[] = ["India · broad market", "India · sectors", "India · themes", "United States", "United Kingdom", "Japan", "Germany", "China"];
 
 /** A registry entry as the picker shows it. */
 export interface UniverseListing extends UniverseInfo { family: UniverseFamily }
@@ -114,6 +114,38 @@ const JAPAN_CANDIDATES = bySector(".T", {
   "Real Estate": "8801 8802 1925",
 });
 
+// The German companies in the DAX plus the larger MDAX names, checked 23 Oct 2026. Airbus and Qiagen,
+// Dutch companies listed in Frankfurt, are left out; Porsche SE's market value covers both share classes.
+const GERMANY_CANDIDATES = bySector(".DE", {
+  Technology: "SAP IFX NEM AIXA",
+  Industrials: "SIE ENR RHM DHL MTX DTG KBX BNR G1A LHA HOT HAG R3NK KGX FRA TKA RAA HLAG 8TRA",
+  "Financial Services": "ALV MUV2 DB1 DBK CBK HNR1 TLX DWS",
+  "Communication Services": "DTE EVD G24",
+  "Consumer Cyclical": "MBG BMW VOW3 P911 PAH3 ADS CON ZAL PUM DHER BOSS TUI1",
+  Healthcare: "MRK BAYN SHL FRE FME SRT3",
+  "Basic Materials": "BAS SY1 HEI EVK 1COV NDA",
+  "Consumer Defensive": "HEN3 BEI",
+  Utilities: "EOAN RWE EBK",
+  "Real Estate": "VNA DWNI LEG",
+});
+
+// About 80 of the largest companies in Shanghai (.SS), Shenzhen (.SZ) and Hong Kong (.HK), checked
+// 23 Oct 2026, one listing each. For companies listed in both places the mainland A share is used: its
+// market value on Yahoo covers the whole company, while the Hong Kong figure prices every share at the
+// cheaper H-share price.
+const CHINA_CANDIDATES: [string, string][] = Object.entries({
+  "Financial Services": "601398.SS 601939.SS 601288.SS 601988.SS 601318.SS 600036.SS 601628.SS 601658.SS 601328.SS 600030.SS 601166.SS 601998.SS 600000.SS 601818.SS 300059.SZ 601601.SS 601211.SS 1299.HK 0388.HK 601319.SS 000001.SZ 601688.SS",
+  Energy: "601857.SS 600938.SS 600028.SS 601088.SS 601225.SS",
+  "Communication Services": "0700.HK 600941.SS 601728.SS 600050.SS 9999.HK 9888.HK 1024.HK",
+  "Consumer Defensive": "600519.SS 000858.SZ 600887.SS 9633.HK 0291.HK 002714.SZ 603288.SS",
+  "Consumer Cyclical": "9988.HK 3690.HK 9618.HK 002594.SZ 601888.SS 600104.SS 000333.SZ 000651.SZ 600690.SS 2020.HK 9961.HK 2015.HK 9868.HK 601127.SS 9992.HK 0175.HK",
+  Technology: "1810.HK 601138.SS 688981.SS 002475.SZ 300308.SZ 300502.SZ 688256.SS 000063.SZ 002371.SZ 688041.SS 002415.SZ 688795.SS",
+  Industrials: "300750.SZ 600031.SS 601390.SS 601668.SS 601919.SS 601766.SS 601816.SS 600150.SS 002352.SZ",
+  "Basic Materials": "601899.SS 600309.SS 600019.SS 600585.SS",
+  Utilities: "600900.SS 601985.SS 003816.SZ 600011.SS",
+  Healthcare: "600276.SS 300760.SZ 2269.HK 1093.HK 6160.HK 603259.SS",
+}).flatMap(([sector, syms]) => syms.split(" ").map((x): [string, string] => [x, sector]));
+
 const DEFS: Def[] = [
   ...NSE,
   {
@@ -123,6 +155,14 @@ const DEFS: Def[] = [
   {
     id: "top50uk", name: "UK 50 most valuable", family: "United Kingdom", size: 50, ranked: "uk",
     description: "The 50 largest UK-listed companies by today's market value, ranked live from the FTSE 100 (list checked 23 Oct 2026).",
+  },
+  {
+    id: "top50de", name: "Germany's 50 most valuable", family: "Germany", size: 50, ranked: "germany",
+    description: `The 50 largest German companies by today's market value, ranked live from about ${GERMANY_CANDIDATES.length} DAX and MDAX names (list checked 23 Oct 2026).`,
+  },
+  {
+    id: "top50cn", name: "China's 50 most valuable", family: "China", size: 50, ranked: "china",
+    description: `The 50 largest Chinese companies by today's market value, ranked live from about ${CHINA_CANDIDATES.length} of the biggest in Shanghai, Shenzhen and Hong Kong (list checked 23 Oct 2026).`,
   },
   {
     id: "top50jp", name: "Japan's 50 most valuable", family: "Japan", size: 50, ranked: "japan",
@@ -192,12 +232,14 @@ function indexMembers(csv: string, name: string): Promise<UniverseMember[]> {
 export interface RankedCompany { rank: number; symbol: string; name: string; industry: string; price: number; marketCap: number; changePct: number | null; currency: string }
 export type { TopMarket };
 
-const CANDIDATES: Record<Exclude<TopMarket, "india">, [string, string][]> = { us: US_CANDIDATES, uk: UK_CANDIDATES, japan: JAPAN_CANDIDATES };
+const CANDIDATES: Record<Exclude<TopMarket, "india">, [string, string][]> = { us: US_CANDIDATES, uk: UK_CANDIDATES, japan: JAPAN_CANDIDATES, germany: GERMANY_CANDIDATES, china: CHINA_CANDIDATES };
 const SOURCE: Record<TopMarket, string> = {
   india: "Nifty 200 constituents (NSE) ranked by market value from Yahoo Finance quotes (delayed)",
   us: `About ${US_CANDIDATES.length} of the largest US companies (list checked ${US_AS_OF}) ranked by market value from Yahoo Finance quotes (delayed)`,
   uk: "FTSE 100 companies (list checked 23 Oct 2026) ranked by market value from Yahoo Finance quotes (delayed)",
   japan: `About ${JAPAN_CANDIDATES.length} of the largest Tokyo-listed companies (list checked 23 Oct 2026) ranked by market value from Yahoo Finance quotes (delayed)`,
+  germany: `About ${GERMANY_CANDIDATES.length} German DAX and MDAX companies (list checked 23 Oct 2026) ranked by market value from Yahoo Finance quotes (delayed)`,
+  china: `About ${CHINA_CANDIDATES.length} of the largest companies in Shanghai, Shenzhen and Hong Kong (list checked 23 Oct 2026) ranked by market value in yuan from Yahoo Finance quotes (delayed)`,
 };
 
 /**
