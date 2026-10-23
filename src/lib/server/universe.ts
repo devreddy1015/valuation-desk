@@ -1,13 +1,14 @@
 import "server-only";
 import { cached, DAY, MIN } from "./cache";
-import { DataError, quotesFor } from "./yahoo";
+import { DataError, fxSpot, quotesFor } from "./yahoo";
+import { TOP_MARKETS, type TopMarket } from "../topMarkets";
 import type { Universe, UniverseInfo, UniverseMember } from "../scanTypes";
 
 // Lists of stocks the scanner can rank. NSE indices come from NSE's own constituent files
 // (refreshed daily); the Dow is a short hard-coded list because it changes only now and then.
 
-export type UniverseFamily = "India · broad market" | "India · sectors" | "India · themes" | "United States";
-export const FAMILIES: UniverseFamily[] = ["India · broad market", "India · sectors", "India · themes", "United States"];
+export type UniverseFamily = "India · broad market" | "India · sectors" | "India · themes" | "United States" | "United Kingdom" | "Japan";
+export const FAMILIES: UniverseFamily[] = ["India · broad market", "India · sectors", "India · themes", "United States", "United Kingdom", "Japan"];
 
 /** A registry entry as the picker shows it. */
 export interface UniverseListing extends UniverseInfo { family: UniverseFamily }
@@ -79,11 +80,53 @@ const US_CANDIDATES: [string, string][] = [
   ["SHW", "Basic Materials"],
 ];
 
+/** Symbols with their sector, from a compact "SECTOR: A B C" table. */
+const bySector = (suffix: string, table: Record<string, string>): [string, string][] =>
+  Object.entries(table).flatMap(([sector, syms]) => syms.split(" ").map((x): [string, string] => [x + suffix, sector]));
+
+// The FTSE 100's companies (investment trusts left out), checked 23 Oct 2026. Ranking the index by
+// market value gives the UK's 50 largest listed companies.
+const UK_CANDIDATES = bySector(".L", {
+  Healthcare: "AZN GSK HLN SN HIK CTEC",
+  Energy: "SHEL BP",
+  "Financial Services": "HSBA LSEG BARC LLOY NWG PRU STAN III LGEN AV ADM BEZ STJ SDR MNG HSX ICG",
+  "Consumer Defensive": "ULVR BATS DGE TSCO IMB RKT ABF SBRY",
+  "Basic Materials": "RIO GLEN AAL ANTO FRES CRDA MNDI EDV",
+  Industrials: "REL RR BA EXPN BNZL SMIN ITRK RTO SPX WEIR IMI DCC MRO BAB DPLM IAG EZJ HWDN",
+  "Consumer Cyclical": "CPG ENT IHG WTB NXT KGF MKS JD PSN BKG TW BTRW GAW BME",
+  Utilities: "NG SSE CNA UU SVT",
+  "Communication Services": "VOD BT-A PSON INF WPP AUTO RMV AAF",
+  Technology: "SGE HLMA",
+  "Real Estate": "LAND BLND SGRO UTG LMP",
+});
+
+// About 90 of the largest companies on the Tokyo Stock Exchange (roughly TOPIX Core30 and Large70),
+// checked 23 Oct 2026; Toyota Industries, taken private in 2026, is left out.
+const JAPAN_CANDIDATES = bySector(".T", {
+  "Consumer Cyclical": "7203 9983 7267 6902 7269 7201 7270 5108 4661 7832 5802",
+  "Financial Services": "8306 8316 8411 8766 7182 8591 8604 8725 8630 8309 8308",
+  Technology: "6758 6861 8035 6702 6857 6981 6723 6752 6762 6146 7751 4307 6971 6920 4062",
+  "Communication Services": "9984 9432 9433 9434 7974 4689 9766 9697",
+  Industrials: "6501 8058 8001 8031 8053 8002 8015 6098 6367 7011 6503 6954 6273 6301 9022 9020 9101 9104 7012 7013 6326 6178",
+  "Basic Materials": "4063 5401",
+  Healthcare: "4502 4568 4519 4543 4578 4503 7741 7733 4901",
+  "Consumer Defensive": "2914 3382 4452 2802 2502 2503 4911",
+  "Real Estate": "8801 8802 1925",
+});
+
 const DEFS: Def[] = [
   ...NSE,
   {
     id: "top50us", name: "US 50 most valuable", family: "United States", size: 50, ranked: "us",
     description: `The 50 largest US companies by today's market value, ranked live from about ${US_CANDIDATES.length} of the biggest (list checked ${US_AS_OF}).`,
+  },
+  {
+    id: "top50uk", name: "UK 50 most valuable", family: "United Kingdom", size: 50, ranked: "uk",
+    description: "The 50 largest UK-listed companies by today's market value, ranked live from the FTSE 100 (list checked 23 Oct 2026).",
+  },
+  {
+    id: "top50jp", name: "Japan's 50 most valuable", family: "Japan", size: 50, ranked: "japan",
+    description: `The 50 largest Japanese companies by today's market value, ranked live from about ${JAPAN_CANDIDATES.length} of the biggest on the Tokyo Stock Exchange (list checked 23 Oct 2026).`,
   },
   {
     id: "dow30", name: "Dow Jones Industrial Average (30)", family: "United States", size: DOW.length, members: DOW,
@@ -147,30 +190,42 @@ function indexMembers(csv: string, name: string): Promise<UniverseMember[]> {
 }
 
 export interface RankedCompany { rank: number; symbol: string; name: string; industry: string; price: number; marketCap: number; changePct: number | null; currency: string }
-export type TopMarket = "india" | "us";
+export type { TopMarket };
+
+const CANDIDATES: Record<Exclude<TopMarket, "india">, [string, string][]> = { us: US_CANDIDATES, uk: UK_CANDIDATES, japan: JAPAN_CANDIDATES };
+const SOURCE: Record<TopMarket, string> = {
+  india: "Nifty 200 constituents (NSE) ranked by market value from Yahoo Finance quotes (delayed)",
+  us: `About ${US_CANDIDATES.length} of the largest US companies (list checked ${US_AS_OF}) ranked by market value from Yahoo Finance quotes (delayed)`,
+  uk: "FTSE 100 companies (list checked 23 Oct 2026) ranked by market value from Yahoo Finance quotes (delayed)",
+  japan: `About ${JAPAN_CANDIDATES.length} of the largest Tokyo-listed companies (list checked 23 Oct 2026) ranked by market value from Yahoo Finance quotes (delayed)`,
+};
 
 /**
  * A market's most valuable listed companies, ranked by today's market value (price × shares), refreshed
  * every 15 minutes from batches of Yahoo quotes. India's candidates are the Nifty 200, which holds every
- * large company except very recent listings; the US candidates are the list above.
+ * large company except very recent listings; the others are the lists above. Market values are put into
+ * the market's own currency first: a few London shares are quoted in dollars.
  */
 export function getTopCompanies(market: TopMarket, n = 50): Promise<{ companies: RankedCompany[]; asOf: string; source: string }> {
   return cached(`top-${market}`, 15 * MIN, async () => {
     const members: UniverseMember[] = market === "india"
       ? await indexMembers("nifty200", "Nifty 200")
-      : US_CANDIDATES.map(([symbol, group]) => ({ symbol, name: symbol, group }));
+      : CANDIDATES[market].map(([symbol, group]) => ({ symbol, name: symbol, group }));
     const quotes = await quotesFor(members.map((m) => m.symbol));
-    // too many gaps would rank the wrong companies: fail (and so skip the cache) rather than show that
-    if (quotes.length < members.length * 0.95) throw new DataError(`Market values loaded for only ${quotes.length} of ${members.length} companies`, "upstream");
+    // too many gaps would rank the wrong companies: fail (and so skip the cache) rather than show that;
+    // a hand-made list may hold a few stale names, so it is allowed a little more slack than NSE's file
+    if (quotes.length < members.length * (market === "india" ? 0.95 : 0.9)) throw new DataError(`Market values loaded for only ${quotes.length} of ${members.length} companies`, "upstream");
+    const base = TOP_MARKETS[market].currency;
+    const rates = new Map<string, number>([[base, 1]]);
+    for (const c of new Set(quotes.map((q) => q.currency))) if (!rates.has(c)) rates.set(c, await fxSpot(c, base).catch(() => NaN));
     const industry = new Map(members.map((m) => [m.symbol, m.group ?? ""]));
     const companies = quotes
-      .sort((a, b) => b.marketCap - a.marketCap)
+      .map((q) => ({ q, value: q.marketCap * (rates.get(q.currency) ?? NaN) }))
+      .filter((x) => Number.isFinite(x.value))
+      .sort((a, b) => b.value - a.value)
       .slice(0, 50)
-      .map((q, i) => ({ rank: i + 1, symbol: q.symbol, name: q.name, industry: industry.get(q.symbol) ?? "", price: q.price, marketCap: q.marketCap, changePct: q.changePct, currency: q.currency }));
-    const source = market === "india"
-      ? "Nifty 200 constituents (NSE) ranked by market value from Yahoo Finance quotes (delayed)"
-      : `About ${US_CANDIDATES.length} of the largest US companies (list checked ${US_AS_OF}) ranked by market value from Yahoo Finance quotes (delayed)`;
-    return { companies, asOf: new Date().toISOString(), source };
+      .map(({ q, value }, i) => ({ rank: i + 1, symbol: q.symbol, name: q.name, industry: industry.get(q.symbol) ?? "", price: q.price, marketCap: value, changePct: q.changePct, currency: q.currency }));
+    return { companies, asOf: new Date().toISOString(), source: SOURCE[market] };
   }).then((r) => ({ ...r, companies: r.companies.slice(0, n) }));
 }
 

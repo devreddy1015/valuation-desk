@@ -99,7 +99,7 @@ export default function Home() {
               <Suspense fallback={<p className="muted" aria-busy="true">Loading today&apos;s market values…</p>}><TopCompanies market="us" n={10} compact /></Suspense>
             </div>
           </div>
-          <p className="note">Ranked by market value (share price × shares) at delayed prices from Yahoo Finance, refreshed every 15 minutes.</p>
+          <p className="note">Ranked by market value (share price × shares) at delayed prices from Yahoo Finance, refreshed every 15 minutes. More markets: <Link className="accent" href="/uk/top">the UK&apos;s 50 most valuable</Link> and <Link className="accent" href="/japan/top">Japan&apos;s 50 most valuable</Link>.</p>
         </section>
 
         <section aria-labelledby="mk-h" style={{ display: "flex", flexDirection: "column", gap: 14 }}>

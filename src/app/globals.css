@@ -343,3 +343,7 @@ table.data tbody tr:hover td { background: color-mix(in oklab, var(--accent-wash
 .top-table .top-down { color: var(--bad); }
 .top-col { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .top-col h3 { margin: 0; }
+.top-markets { display: flex; flex-wrap: wrap; gap: 6px; }
+.top-markets a, .top-markets span { border: 1px solid var(--line-2); border-radius: 999px; padding: 3px 12px; font-size: 13px; text-decoration: none; color: var(--ink-2); }
+.top-markets a:hover { border-color: var(--accent); color: var(--ink); }
+.top-markets span[aria-current="page"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
